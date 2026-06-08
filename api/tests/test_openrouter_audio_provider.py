@@ -1,4 +1,6 @@
 from types import SimpleNamespace
+
+import pytest
 from openai.types.audio import Transcription
 from pipecat.frames.frames import TTSAudioRawFrame
 
@@ -71,6 +73,7 @@ def test_create_openrouter_stt_service_uses_openrouter_base_url():
     assert service._settings.model == "qwen/qwen3-asr-flash-2026-02-10"
 
 
+@pytest.mark.asyncio
 async def test_openrouter_stt_transcribe_posts_json_input_audio_body():
     service = OpenRouterSTTService(
         api_key="sk-or-v1-test",
@@ -130,6 +133,7 @@ def test_create_openrouter_tts_service_uses_openrouter_base_url_and_speed():
     assert service._settings.speed == 1.1
 
 
+@pytest.mark.asyncio
 async def test_openrouter_tts_requests_mp3_and_yields_pcm(monkeypatch):
     service = OpenRouterTTSService(
         api_key="sk-or-v1-test",

@@ -875,7 +875,6 @@ OPENAI_TTS_MODELS = ["gpt-4o-mini-tts"]
 OPENROUTER_TTS_MODELS = [
     "x-ai/grok-voice-tts-1.0",
     "google/gemini-3.1-flash-tts-preview",
-    "mistralai/voxtral-mini-tts-2603",
 ]
 
 

@@ -134,8 +134,11 @@ class OpenRouterTTSService(OpenAITTSService):
     """OpenRouter TTS adapter that decodes provider MP3 output to Pipecat PCM frames."""
 
     async def run_tts(self, text: str, context_id: str):
-        logger.debug(f"{self}: Generating OpenRouter TTS [{text}]")
         voice = self._settings.voice
+        logger.debug(
+            f"{self}: Generating OpenRouter TTS "
+            f"(model={self._settings.model}, voice={voice}, context_id={context_id})"
+        )
         if voice is None:
             yield ErrorFrame(error="OpenRouter TTS voice must be specified")
             return
