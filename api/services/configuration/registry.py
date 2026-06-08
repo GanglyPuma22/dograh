@@ -226,6 +226,7 @@ OPENAI_PROVIDER_MODEL_CONFIG = provider_model_config("OpenAI")
 GOOGLE_PROVIDER_MODEL_CONFIG = provider_model_config("Google")
 GROQ_PROVIDER_MODEL_CONFIG = provider_model_config("Groq")
 OPENROUTER_PROVIDER_MODEL_CONFIG = provider_model_config("Open Router")
+OPENROUTER_AUDIO_PROVIDER_MODEL_CONFIG = provider_model_config("OpenRouter")
 AZURE_OPENAI_PROVIDER_MODEL_CONFIG = provider_model_config("Azure OpenAI")
 DOGRAH_PROVIDER_MODEL_CONFIG = provider_model_config("Dograh")
 AWS_BEDROCK_PROVIDER_MODEL_CONFIG = provider_model_config("AWS Bedrock")
@@ -871,6 +872,10 @@ class GoogleTTSConfiguration(BaseTTSConfiguration):
 
 
 OPENAI_TTS_MODELS = ["gpt-4o-mini-tts"]
+OPENROUTER_TTS_MODELS = [
+    "x-ai/grok-voice-tts-1.0",
+    "google/gemini-3.1-flash-tts-preview",
+]
 
 
 @register_tts
@@ -889,6 +894,35 @@ class OpenAITTSService(BaseTTSConfiguration):
     base_url: str = Field(
         default="https://api.openai.com/v1",
         description="Override only if using an OpenAI-compatible API (e.g. local TTS, proxy).",
+    )
+
+
+@register_tts
+class OpenRouterTTSConfiguration(BaseTTSConfiguration):
+    model_config = OPENROUTER_AUDIO_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.OPENROUTER] = ServiceProviders.OPENROUTER
+    model: str = Field(
+        default="x-ai/grok-voice-tts-1.0",
+        description="OpenRouter TTS model slug.",
+        json_schema_extra={
+            "examples": OPENROUTER_TTS_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    voice: str = Field(
+        default="default",
+        description="TTS voice name supported by the selected OpenRouter model.",
+        json_schema_extra={"allow_custom_input": True},
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.25,
+        le=4.0,
+        description="Speech speed multiplier.",
+    )
+    base_url: str = Field(
+        default="https://openrouter.ai/api/v1",
+        description="Override only if proxying OpenRouter through your own gateway.",
     )
 
 
@@ -1125,6 +1159,7 @@ TTSConfig = Annotated[
         DeepgramTTSConfiguration,
         GoogleTTSConfiguration,
         OpenAITTSService,
+        OpenRouterTTSConfiguration,
         ElevenlabsTTSConfiguration,
         CartesiaTTSConfiguration,
         DograhTTSService,
@@ -1178,6 +1213,7 @@ class CartesiaSTTConfiguration(BaseSTTConfiguration):
 
 
 OPENAI_STT_MODELS = ["gpt-4o-transcribe"]
+OPENROUTER_STT_MODELS = ["qwen/qwen3-asr-flash-2026-02-10"]
 
 
 @register_stt
@@ -1192,6 +1228,24 @@ class OpenAISTTConfiguration(BaseSTTConfiguration):
     base_url: str = Field(
         default="https://api.openai.com/v1",
         description="Override only if using an OpenAI-compatible API (e.g. local STT, proxy).",
+    )
+
+
+@register_stt
+class OpenRouterSTTConfiguration(BaseSTTConfiguration):
+    model_config = OPENROUTER_AUDIO_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.OPENROUTER] = ServiceProviders.OPENROUTER
+    model: str = Field(
+        default="qwen/qwen3-asr-flash-2026-02-10",
+        description="OpenRouter STT model slug.",
+        json_schema_extra={
+            "examples": OPENROUTER_STT_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    base_url: str = Field(
+        default="https://openrouter.ai/api/v1",
+        description="Override only if proxying OpenRouter through your own gateway.",
     )
 
 
@@ -1401,6 +1455,7 @@ STTConfig = Annotated[
         DeepgramSTTConfiguration,
         CartesiaSTTConfiguration,
         OpenAISTTConfiguration,
+        OpenRouterSTTConfiguration,
         GoogleSTTConfiguration,
         DograhSTTService,
         SpeechmaticsSTTConfiguration,

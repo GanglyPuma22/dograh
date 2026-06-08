@@ -1,14 +1,18 @@
+import asyncio
+import shutil
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode, urlparse, urlunparse
 
 import aiohttp
 from fastapi import HTTPException
 from loguru import logger
+from openai.types.audio import Transcription
 
 from api.constants import MPS_API_URL
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.minimax_tts import MiniMaxOwnedSessionTTSService
 from api.utils.url_security import validate_user_configured_service_url
+from pipecat.frames.frames import ErrorFrame, TTSAudioRawFrame
 from pipecat.services.assemblyai.stt import AssemblyAISTTService, AssemblyAISTTSettings
 from pipecat.services.aws.llm import AWSBedrockLLMService, AWSBedrockLLMSettings
 from pipecat.services.azure.llm import AzureLLMService, AzureLLMSettings
@@ -47,7 +51,157 @@ from pipecat.services.openai.stt import (
     OpenAISTTService,
     OpenAISTTSettings,
 )
-from pipecat.services.openai.tts import OpenAITTSService, OpenAITTSSettings
+from pipecat.services.openai.tts import (
+    OpenAITTSService,
+    OpenAITTSSettings,
+)
+
+
+class OpenRouterSTTService(OpenAISTTService):
+    """Custom STT service for OpenRouter that sends JSON format instead of multipart/form-data.
+
+    OpenRouter's /api/v1/audio/transcriptions endpoint expects:
+        Content-Type: application/json
+        { "input_audio": { "data": "<base64>", "format": "wav" } }
+    """
+
+    async def _transcribe(self, audio: bytes):
+        import base64
+
+        body = {
+            "model": self._settings.model,
+            "input_audio": {
+                "data": base64.b64encode(audio).decode("utf-8"),
+                "format": "wav",
+            },
+        }
+        if self._settings.language is not None:
+            body["language"] = self.language_to_service_language(
+                self._settings.language
+            )
+        if self._settings.temperature is not None:
+            body["temperature"] = self._settings.temperature
+
+        return await self._client.post(
+            "/audio/transcriptions",
+            cast_to=Transcription,
+            body=body,
+        )
+
+
+async def _convert_audio_bytes_to_pcm(
+    audio: bytes,
+    target_sample_rate: int,
+) -> bytes | None:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        logger.error("ffmpeg not found on PATH - cannot decode OpenRouter TTS audio")
+        return None
+
+    proc = await asyncio.create_subprocess_exec(
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        "pipe:0",
+        "-f",
+        "s16le",
+        "-acodec",
+        "pcm_s16le",
+        "-ac",
+        "1",
+        "-ar",
+        str(target_sample_rate),
+        "pipe:1",
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate(audio)
+
+    if proc.returncode != 0:
+        logger.error(f"ffmpeg failed decoding OpenRouter TTS audio: {stderr.decode()}")
+        return None
+    if not stdout:
+        logger.error("ffmpeg produced no PCM output for OpenRouter TTS audio")
+        return None
+
+    return stdout
+
+
+class OpenRouterTTSService(OpenAITTSService):
+    """OpenRouter TTS adapter that decodes provider MP3 output to Pipecat PCM frames."""
+
+    async def run_tts(self, text: str, context_id: str):
+        voice = self._settings.voice
+        logger.debug(
+            f"{self}: Generating OpenRouter TTS "
+            f"(model={self._settings.model}, voice={voice}, context_id={context_id})"
+        )
+        if voice is None:
+            yield ErrorFrame(error="OpenRouter TTS voice must be specified")
+            return
+
+        try:
+            create_params = {
+                "input": text,
+                "model": self._settings.model,
+                "voice": voice,
+                "response_format": "mp3",
+            }
+
+            if self._settings.instructions:
+                create_params["instructions"] = self._settings.instructions
+
+            if self._settings.speed:
+                create_params["speed"] = self._settings.speed
+
+            async with self._client.audio.speech.with_streaming_response.create(
+                **create_params
+            ) as response:
+                if response.status_code != 200:
+                    error = await response.text()
+                    logger.error(
+                        f"{self} error getting audio "
+                        f"(status: {response.status_code}, error: {error})"
+                    )
+                    yield ErrorFrame(
+                        error="Error getting audio "
+                        f"(status: {response.status_code}, error: {error})"
+                    )
+                    return
+
+                await self.start_tts_usage_metrics(text)
+                encoded_audio = bytearray()
+                chunk_size = self.chunk_size or 8192
+                async for chunk in response.iter_bytes(chunk_size):
+                    if chunk:
+                        encoded_audio.extend(chunk)
+
+                target_sample_rate = self.sample_rate or 24000
+                pcm_audio = await _convert_audio_bytes_to_pcm(
+                    bytes(encoded_audio),
+                    target_sample_rate,
+                )
+                if not pcm_audio:
+                    yield ErrorFrame(error="Failed to decode OpenRouter TTS audio")
+                    return
+
+                await self.stop_ttfb_metrics()
+                for offset in range(0, len(pcm_audio), chunk_size):
+                    chunk = pcm_audio[offset : offset + chunk_size]
+                    if chunk:
+                        yield TTSAudioRawFrame(
+                            chunk,
+                            target_sample_rate,
+                            1,
+                            context_id=context_id,
+                        )
+        except Exception as e:
+            yield ErrorFrame(error=f"Unknown error occurred: {e}")
+
+
 from pipecat.services.openrouter.llm import OpenRouterLLMService, OpenRouterLLMSettings
 from pipecat.services.rime.tts import RimeTTSService, RimeTTSSettings
 from pipecat.services.sarvam.llm import SarvamLLMService, SarvamLLMSettings
@@ -131,6 +285,16 @@ def create_stt_service(
             api_key=user_config.stt.api_key,
             settings=OpenAISTTSettings(model=user_config.stt.model),
             **kwargs,
+        )
+    elif user_config.stt.provider == ServiceProviders.OPENROUTER.value:
+        base_url = (
+            getattr(user_config.stt, "base_url", None) or "https://openrouter.ai/api/v1"
+        )
+        _validate_runtime_service_url(base_url, "base_url")
+        return OpenRouterSTTService(
+            api_key=user_config.stt.api_key,
+            settings=OpenAISTTSettings(model=user_config.stt.model),
+            base_url=base_url,
         )
     elif user_config.stt.provider == ServiceProviders.GOOGLE.value:
         language = getattr(user_config.stt, "language", None) or "en-US"
@@ -319,6 +483,24 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
             **kwargs,
+        )
+    elif user_config.tts.provider == ServiceProviders.OPENROUTER.value:
+        base_url = (
+            getattr(user_config.tts, "base_url", None) or "https://openrouter.ai/api/v1"
+        )
+        _validate_runtime_service_url(base_url, "base_url")
+        speed = getattr(user_config.tts, "speed", None)
+        return OpenRouterTTSService(
+            api_key=user_config.tts.api_key,
+            base_url=base_url,
+            settings=OpenAITTSSettings(
+                model=user_config.tts.model,
+                voice=user_config.tts.voice,
+                **({"speed": speed} if speed is not None else {}),
+            ),
+            text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router", "recording"],
+            silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.GOOGLE.value:
         model = getattr(user_config.tts, "model", None) or "chirp_3_hd"
