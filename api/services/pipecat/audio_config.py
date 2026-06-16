@@ -5,10 +5,50 @@ sample rates across all pipeline components and proper coordination between
 transport serializers, VAD, and audio buffers.
 """
 
+import os
 from dataclasses import dataclass
 from typing import Optional
 
 from loguru import logger
+
+
+DEFAULT_MAX_RECORDING_DURATION_SECONDS = 300.0
+MAX_RECORDING_DURATION_ENV_VAR = "DOGRAH_MAX_RECORDING_DURATION_SECONDS"
+
+
+def _resolve_max_recording_duration_seconds(
+    configured_value: Optional[float],
+) -> float:
+    if configured_value is not None:
+        if configured_value > 0:
+            return float(configured_value)
+        logger.warning(
+            f"Invalid explicit max recording duration {configured_value!r}; "
+            f"using default {DEFAULT_MAX_RECORDING_DURATION_SECONDS}s"
+        )
+        return DEFAULT_MAX_RECORDING_DURATION_SECONDS
+
+    raw_value = os.getenv(MAX_RECORDING_DURATION_ENV_VAR)
+    if raw_value is None or raw_value.strip() == "":
+        return DEFAULT_MAX_RECORDING_DURATION_SECONDS
+
+    try:
+        resolved_value = float(raw_value)
+    except ValueError:
+        logger.warning(
+            f"Invalid {MAX_RECORDING_DURATION_ENV_VAR}={raw_value!r}; "
+            f"using default {DEFAULT_MAX_RECORDING_DURATION_SECONDS}s"
+        )
+        return DEFAULT_MAX_RECORDING_DURATION_SECONDS
+
+    if resolved_value <= 0:
+        logger.warning(
+            f"Invalid {MAX_RECORDING_DURATION_ENV_VAR}={raw_value!r}; "
+            f"using default {DEFAULT_MAX_RECORDING_DURATION_SECONDS}s"
+        )
+        return DEFAULT_MAX_RECORDING_DURATION_SECONDS
+
+    return resolved_value
 
 
 @dataclass
@@ -31,9 +71,13 @@ class AudioConfig:
     vad_sample_rate: int = 16000  # VAD typically resamples internally
     pipeline_sample_rate: Optional[int] = None  # If None, uses transport rates
     buffer_size_seconds: float = 5.0  # This is how frequenly we will call merge_auido
-    max_recording_duration_seconds: float = 300.0  # 5 minutes max recording duration
+    max_recording_duration_seconds: Optional[float] = None
 
     def __post_init__(self):
+        self.max_recording_duration_seconds = _resolve_max_recording_duration_seconds(
+            self.max_recording_duration_seconds
+        )
+
         # Validate VAD sample rate
         if self.vad_sample_rate not in [8000, 16000]:
             raise ValueError(
@@ -59,7 +103,8 @@ class AudioConfig:
             f"transport_out={self.transport_out_sample_rate}Hz, "
             f"vad={self.vad_sample_rate}Hz, "
             f"pipeline={self.pipeline_sample_rate}Hz, "
-            f"buffer={self.buffer_size_seconds}s"
+            f"buffer={self.buffer_size_seconds}s, "
+            f"max_recording_duration_seconds={self.max_recording_duration_seconds}s"
         )
 
     @property
