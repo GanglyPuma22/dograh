@@ -12,6 +12,10 @@ from api.services.integrations import (
     create_runtime_sessions,
 )
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
+from api.services.pipecat.call_duration_config import (
+    DEFAULT_MAX_CALL_DURATION_SECONDS,
+    resolve_max_call_duration_seconds,
+)
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
     register_event_handlers,
@@ -351,7 +355,7 @@ async def _run_pipeline(
     run_configs = run_definition.workflow_configurations or {}
 
     # Extract configurations from the version's workflow_configurations
-    max_call_duration_seconds = 300  # Default 5 minutes
+    max_call_duration_seconds = None
     max_user_idle_timeout = 10.0  # Default 10 seconds
     smart_turn_stop_secs = 2.0  # Default 2 seconds for incomplete turn timeout
     turn_stop_strategy = "transcription"  # Default to transcription-based detection
@@ -376,6 +380,14 @@ async def _run_pipeline(
                 keyterms = [
                     term.strip() for term in dictionary.split(",") if term.strip()
                 ]
+
+    max_call_duration_seconds = resolve_max_call_duration_seconds(
+        max_call_duration_seconds
+    )
+    if max_call_duration_seconds != DEFAULT_MAX_CALL_DURATION_SECONDS:
+        logger.info(
+            f"Resolved max_call_duration_seconds={max_call_duration_seconds}s"
+        )
 
     # Resolve model overrides from the version onto global user config (skip
     # when the caller already resolved it).
