@@ -194,3 +194,35 @@ The deployed handler/executor produced these results:
 The fixture delta was five unique Windows invocations and two cancellations. No retry produced a second fake effect. Dograh logged only the SHA-256 identity correlation prefix and argument-key list at the handler layer; no raw runtime envelope or credential was emitted.
 
 The staging receipt printer initially encountered SQLAlchemy post-commit expiration after its transaction committed. Creation was not retried: exact IDs were recovered read-only through the unique marker and written immediately to the mode-0600 receipt. Cleanup then verified every ID/UUID/name relationship, zero runs, zero tokens, and the exact definition relationship before deleting only those disposable rows in one transaction. The fixture container and temporary runner were removed. All four protected Task 1 hashes returned exactly to baseline after cleanup.
+
+## Dedicated Windows voice agent
+
+The persistent `Jeeves Windows Voice` workflow is independently owned by organization/user `3`, active, and published on definition ID `3` version `1`. Its exact workflow identity is ID `3` / UUID `15af4c02-3b83-4483-a529-fa73c735dbc9`; embed token ID `2` remains active with no expiry or usage limit. The four attached active tools are Windows-owned IDs `18`-`21` with UUIDs `e8f3025e-4495-44a6-b0d2-0cf9d3cb4063`, `7116800c-d985-4289-943b-42e2196968b5`, `52a8f327-895d-4137-a0bb-d96579bb8fcc`, and `aa669365-7fa3-441c-8f0f-e7c31a903b9b`.
+
+Every stored tool definition opts into the reserved identity transport, carries `agent_scope=jeeves_windows`, and targets only `http://jeeves-windows-voice-gateway:8080/tools/windows_*`. Credential ID `1` / UUID `58773313-db7d-46c4-ad75-42ec6ad30ee5` is active and Windows-owned. The combined redacted tool-manifest hash is `bf8c4bdeca45e3c8a97259e867c7d2f7658a0a3afdec2c6881b0b8e8d9a90c28`. The exact persistent receipt is `/home/mmounier/.openclaw/workspace/state/runs/dograh-jeeves-windows-identity-propagation-final-objects.json` at mode `0600`; it contains no secret values.
+
+The stored definitions returned HTTP 200 through deployed Dograh for four fake-backed positive routes. Five ambiguous utterances produced clarification-only behavior and zero gateway dispatches. Public embed configuration and initialization returned HTTP 200, creating disposable workflow run ID `236` and embed session ID `200`; both were deleted by exact ownership-checked ID, and a fresh configuration request remained HTTP 200. No Deck object, route, backend, credential, source tree, or capability participates in this workflow.
+
+## Final Task 12 verification
+
+The final Dograh focused gate passed `59/59`. Changed-file Ruff check/format, targeted mypy with skipped import following, and `git diff --check` passed. The final isolated full-suite environment used `dograh_test`, authenticated Redis database 15, and no deployed application data. It collected 911 tests and completed with 909 passed plus the same two pre-existing suite-order class-identity failures in `test_openrouter_audio_provider.py`; that unchanged file immediately passed `7/7` alone. An earlier regression run recorded 913 passed plus the same two failures. No in-scope identity test failed.
+
+The Jeeves Windows gateway final gates passed Biome, TypeScript, and the complete Vitest suite: 7 files / 63 tests, including the 1,000-iteration duplicate/restart/cancel matrix. The separately invoked dedicated stress command also passed `1/1` in 260.2 seconds.
+
+Final read-only live verification found:
+
+- API health HTTP 200 and a healthy container on candidate digest `sha256:7bbc1bdd6a307ed14be991568f3806f9ce89bea8935f18c3cf4e6bba93a5ca02`;
+- the expected port-3010 redirect, plus successful PostgreSQL and authenticated Redis pings;
+- two consecutive API socket observations at zero established inbound port-8000 connections;
+- zero unexpired embed sessions, zero text sessions updated in the preceding hour, and zero workflow runs created in the preceding hour;
+- the persistent workflow still active on released published definition `3`, token `2` still active, credential `1` still active, and all four Windows tools still active on their recorded internal-only routes; and
+- no persistent gateway fixture container and no real Windows/GPU action.
+
+The final protected Deck hashes exactly match Task 1:
+
+- workflow: `2aefec6a27eebd0aecb32f6a7b2b5f44db112306e8b04d61101816885781f0e2`;
+- published definitions: `dd6fcd53f6d17bd881d6507b7b4eaf4d61bb616606f90ec64c3832d96db2216d`;
+- exact tool IDs `1`-`13`: `d8c93b70deaf68a212fc50964957a680485cb712ba5269e9ef8acc08f5fe862e`; and
+- redacted token metadata: `aa9332bc86a850977356bcba480d9d2eaebd3ed73ae140e06dc4fb3169539d89`.
+
+The rollback image remains locally addressable as `dograh-local-api:rollback-4a9b5ca87df6` at `sha256:4a9b5ca87df6c8724c4a2b92a69ea44f301791583b3d106cbf5e17dfab2c29e7`. The rollback trap was not invoked.
