@@ -143,3 +143,27 @@ The image was built directly from the clean committed worktree through `api/Dock
 - `pipecat_engine_custom_tools.py`: `29492cd730f843c619f911bcea0075c028862c40e8e027ef225afe04c8e486c9`.
 
 An unexposed ephemeral candidate container used only the isolated `dograh_test` database and Redis database 15. Its internal `/api/v1/health` returned HTTP 200. A no-network executor smoke proved the opted-in header and unchanged model body, fail-closed missing identity before I/O, and byte-equivalent legacy request shape. The startup script validation also passed. The ephemeral container was removed, and no protected Deck workflow/tool/token or deployed application data was read or changed by these image checks.
+
+## Controlled API-only deployment receipt
+
+Immediately before the restart, two API socket observations found zero established connections on port 8000. PostgreSQL reported zero unexpired embed sessions, zero text sessions updated in the preceding hour, and zero workflow runs created in the preceding hour. The running API was still healthy on the rollback digest, both candidate and rollback tags were addressable, and the four Task 1 protected hashes matched exactly.
+
+Only `dograh-local-api-1` was recreated through the existing two-file Compose procedure. No other service, port, endpoint, certificate, provider setting, credential, workflow, tool, or token was changed.
+
+- Deployment time: 2026-07-16 00:40 PDT.
+- Running/mutable-tag digest: `sha256:7bbc1bdd6a307ed14be991568f3806f9ce89bea8935f18c3cf4e6bba93a5ca02`.
+- Rollback tag/digest remains: `dograh-local-api:rollback-4a9b5ca87df6` / `sha256:4a9b5ca87df6c8724c4a2b92a69ea44f301791583b3d106cbf5e17dfab2c29e7`.
+- Container state: running and healthy.
+- Direct API health on port 18000: HTTP 200.
+- Port-3010 API health and redirected UI root: HTTP 200.
+- In-container PostgreSQL and Redis pings: passed.
+- Deployed changed-file hashes: exact candidate matches.
+
+Post-restart Deck comparison matched Task 1 exactly:
+
+- workflow: `2aefec6a27eebd0aecb32f6a7b2b5f44db112306e8b04d61101816885781f0e2`;
+- definitions: `dd6fcd53f6d17bd881d6507b7b4eaf4d61bb616606f90ec64c3832d96db2216d`;
+- tools: `d8c93b70deaf68a212fc50964957a680485cb712ba5269e9ef8acc08f5fe862e`; and
+- redacted token metadata: `aa9332bc86a850977356bcba480d9d2eaebd3ed73ae140e06dc4fb3169539d89`.
+
+The protected workflow remained ID 1 / UUID `ae33eb50-0423-44a9-b431-d83432781017`, active on released definition 1; all 13 protected tools remained active; protected token ID 1 remained active at usage count 199. The rollback trap was not invoked.
