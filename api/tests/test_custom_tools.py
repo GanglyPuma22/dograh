@@ -28,6 +28,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
 
 from api.services.workflow.pipecat_engine_custom_tools import get_function_schema
+from api.services.workflow.tools import custom_tool as custom_tool_module
 from api.services.workflow.tools.custom_tool import (
     _coerce_parameter_value,
     execute_http_tool,
@@ -295,6 +296,199 @@ class TestToolToFunctionSchema:
 
 class TestExecuteHttpTool:
     """Tests for execute_http_tool function."""
+
+    @staticmethod
+    def _runtime_identity():
+        return custom_tool_module.HttpToolRuntimeIdentity(
+            tool_call_id="call_custom_123",
+            workflow_run_id="42",
+            tool_uuid="tool-uuid",
+            agent_scope="jeeves_windows",
+        )
+
+    @staticmethod
+    def _identity_tool(method: str, **config_overrides: Any):
+        return MockToolModel(
+            tool_uuid="tool-uuid",
+            name="Windows Tool",
+            description="Call a Windows-owned tool",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": method,
+                    "url": "https://windows.example.com/tool",
+                    "forward_runtime_identity": True,
+                    **config_overrides,
+                },
+            },
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH"])
+    async def test_post_family_forwards_reserved_runtime_identity_header(self, method):
+        """Opted-in body methods carry runtime identity without changing arguments."""
+        tool = self._identity_tool(method)
+        arguments = {"app_id": "app:v1:spotify"}
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock(status_code=200)
+            mock_response.json.return_value = {"status": "ok"}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            await execute_http_tool(
+                tool,
+                arguments,
+                runtime_identity=self._runtime_identity(),
+            )
+
+            request = mock_client.request.call_args.kwargs
+            assert request["json"] == arguments
+            assert request["params"] is None
+            assert request["headers"]["X-Dograh-Runtime-Identity"] == (
+                '{"agent_scope":"jeeves_windows","tool_call_id":"call_custom_123",'
+                '"tool_uuid":"tool-uuid","workflow_run_id":"42"}'
+            )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method", ["GET", "DELETE"])
+    async def test_query_methods_forward_identity_in_method_safe_header(self, method):
+        """Opted-in query methods carry identity without adding a request body."""
+        tool = self._identity_tool(method)
+        arguments = {"query": "spotify"}
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock(status_code=200)
+            mock_response.json.return_value = {"status": "ok"}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            await execute_http_tool(
+                tool,
+                arguments,
+                runtime_identity=self._runtime_identity(),
+            )
+
+            request = mock_client.request.call_args.kwargs
+            assert request["json"] is None
+            assert request["params"] == arguments
+            assert "X-Dograh-Runtime-Identity" in request["headers"]
+
+    @pytest.mark.asyncio
+    async def test_runtime_identity_overrides_reserved_names_from_all_configurable_inputs(
+        self,
+    ):
+        """Model, preset, and configured header values cannot forge runtime identity."""
+        tool = self._identity_tool(
+            "POST",
+            headers={"X-Dograh-Runtime-Identity": "forged-header"},
+            preset_parameters=[
+                {
+                    "name": "tool_call_id",
+                    "type": "string",
+                    "value_template": "forged-preset",
+                    "required": True,
+                }
+            ],
+        )
+        arguments = {
+            "tool_call_id": "forged-model",
+            "workflow_run_id": "forged-model-run",
+        }
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock(status_code=200)
+            mock_response.json.return_value = {"status": "ok"}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            await execute_http_tool(
+                tool,
+                arguments,
+                runtime_identity=self._runtime_identity(),
+            )
+
+            request = mock_client.request.call_args.kwargs
+            assert request["json"]["tool_call_id"] == "forged-preset"
+            assert request["json"]["workflow_run_id"] == "forged-model-run"
+            assert request["headers"]["X-Dograh-Runtime-Identity"] == (
+                '{"agent_scope":"jeeves_windows","tool_call_id":"call_custom_123",'
+                '"tool_uuid":"tool-uuid","workflow_run_id":"42"}'
+            )
+
+    @pytest.mark.asyncio
+    async def test_opted_in_tool_without_runtime_identity_fails_before_io(self):
+        """An opted-in tool fails closed when stable runtime identity is absent."""
+        tool = self._identity_tool("POST")
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            result = await execute_http_tool(tool, {"app_id": "app:v1:spotify"})
+
+        assert result == {
+            "status": "error",
+            "error": "Runtime identity is required for this HTTP tool",
+        }
+        mock_client_class.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_legacy_tool_retains_exact_request_shape_with_reserved_arguments(self):
+        """A non-opted-in tool retains the exact pre-change mocked request shape."""
+        tool = MockToolModel(
+            tool_uuid="legacy-tool-uuid",
+            name="Legacy Tool",
+            description="Legacy request",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://legacy.example.com/tool",
+                    "headers": {"X-Legacy": "preserved"},
+                    "timeout_ms": 5000,
+                },
+            },
+        )
+        arguments = {
+            "tool_call_id": "model-value",
+            "workflow_run_id": "model-run",
+        }
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock(status_code=200)
+            mock_response.json.return_value = {"status": "ok"}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            await execute_http_tool(
+                tool,
+                arguments,
+                runtime_identity=self._runtime_identity(),
+            )
+
+            mock_client.request.assert_awaited_once_with(
+                method="POST",
+                url="https://legacy.example.com/tool",
+                headers={"X-Legacy": "preserved"},
+                json=arguments,
+                params=None,
+            )
 
     @pytest.mark.asyncio
     async def test_post_request_sends_json_body(self):

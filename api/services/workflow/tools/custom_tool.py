@@ -2,6 +2,7 @@
 
 import json
 import re
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import httpx
@@ -19,6 +20,31 @@ TYPE_MAP = {
     "object": "object",
     "array": "array",
 }
+
+RUNTIME_IDENTITY_HEADER = "X-Dograh-Runtime-Identity"
+
+
+@dataclass(frozen=True)
+class HttpToolRuntimeIdentity:
+    """Dograh-owned identity forwarded to explicitly opted-in HTTP tools."""
+
+    tool_call_id: str
+    workflow_run_id: str
+    tool_uuid: str
+    agent_scope: str
+
+    def as_header_value(self) -> str:
+        """Serialize the reserved identity envelope deterministically."""
+        return json.dumps(
+            {
+                "agent_scope": self.agent_scope,
+                "tool_call_id": self.tool_call_id,
+                "tool_uuid": self.tool_uuid,
+                "workflow_run_id": self.workflow_run_id,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
 
 
 def tool_to_function_schema(tool: Any) -> Dict[str, Any]:
@@ -211,6 +237,7 @@ async def execute_http_tool(
     call_context_vars: Optional[Dict[str, Any]] = None,
     gathered_context_vars: Optional[Dict[str, Any]] = None,
     organization_id: Optional[int] = None,
+    runtime_identity: Optional[HttpToolRuntimeIdentity] = None,
 ) -> Dict[str, Any]:
     """Execute an HTTP API tool.
 
@@ -220,6 +247,7 @@ async def execute_http_tool(
         call_context_vars: Initial context variables available at runtime
         gathered_context_vars: Variables extracted during the conversation
         organization_id: Organization ID for credential lookup
+        runtime_identity: Dograh-owned identity for opted-in tools
 
     Returns:
         Result dict with response data or error
@@ -265,6 +293,14 @@ async def execute_http_tool(
         return {"status": "error", "error": str(e)}
 
     resolved_arguments = {**(arguments or {}), **preset_arguments}
+
+    if config.get("forward_runtime_identity") is True:
+        if runtime_identity is None:
+            return {
+                "status": "error",
+                "error": "Runtime identity is required for this HTTP tool",
+            }
+        headers[RUNTIME_IDENTITY_HEADER] = runtime_identity.as_header_value()
 
     # Build request: JSON body for POST/PUT/PATCH, query params for GET/DELETE
     body = None
