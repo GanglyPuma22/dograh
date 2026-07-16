@@ -7,6 +7,7 @@ This module tests:
 4. End-to-end LLM generation with custom tool calls
 """
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Dict
 from unittest.mock import AsyncMock, Mock, patch
@@ -14,6 +15,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
+    FunctionCallFromLLM,
     FunctionCallInProgressFrame,
     FunctionCallResultFrame,
     FunctionCallsFromLLMInfoFrame,
@@ -26,6 +28,7 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
+from pipecat.utils.asyncio.task_manager import TaskManager, TaskManagerParams
 
 from api.services.workflow.pipecat_engine_custom_tools import get_function_schema
 from api.services.workflow.tools import custom_tool as custom_tool_module
@@ -1221,6 +1224,186 @@ class TestCustomToolManagerUnit:
         manager.get_organization_id = AsyncMock(return_value=7)
         return manager, tool
 
+    async def _run_http_handler_through_pipecat(
+        self,
+        executor,
+        *,
+        timeout_ms: int = 20,
+    ):
+        manager, tool = self._identity_manager_and_tool()
+        tool.definition["config"]["timeout_ms"] = timeout_ms
+        llm = MockLLMService()
+        task_manager = TaskManager()
+        task_manager.setup(TaskManagerParams(loop=asyncio.get_running_loop()))
+        llm._task_manager = task_manager
+        llm._pipeline_worker = Mock(app_resources=None)
+        llm._call_event_handler = AsyncMock()
+        manager._engine.llm = llm
+
+        handler, timeout_secs = manager._create_handler(tool, "windows_open_app")
+        llm.register_function(
+            "windows_open_app",
+            handler,
+            timeout_secs=timeout_secs,
+        )
+
+        frames = []
+        terminal_frame = asyncio.Event()
+
+        async def record_frame(frame_cls, **kwargs):
+            frame = frame_cls(**kwargs)
+            frames.append(frame)
+            if isinstance(frame, FunctionCallResultFrame):
+                terminal_frame.set()
+
+        async def run_inline(runner_items):
+            for runner_item in runner_items:
+                await llm._run_function_call(runner_item)
+
+        llm.broadcast_frame = record_frame
+        llm._run_parallel_function_calls = run_inline
+        llm._run_sequential_function_calls = run_inline
+
+        call = FunctionCallFromLLM(
+            function_name="windows_open_app",
+            tool_call_id="call_terminal_123",
+            arguments={"app_id": "app:v1:spotify"},
+            context=LLMContext(),
+        )
+
+        async def run_with_executor():
+            with patch(
+                "api.services.workflow.pipecat_engine_custom_tools.execute_http_tool",
+                side_effect=executor,
+            ):
+                await llm.run_function_calls([call])
+
+        task = asyncio.create_task(run_with_executor())
+        return task, frames, terminal_frame, timeout_secs
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "result",
+        [
+            {"status": "success", "status_code": 200, "data": {"opened": True}},
+            {"status": "error", "status_code": 504, "error": "gateway timeout"},
+            {"status": "error", "error": "Request timed out after 0.02 seconds"},
+        ],
+    )
+    async def test_registered_http_handler_emits_one_terminal_result(self, result):
+        async def executor(**_kwargs):
+            return result
+
+        (
+            task,
+            frames,
+            _terminal,
+            _outer_timeout,
+        ) = await self._run_http_handler_through_pipecat(executor)
+        await task
+
+        terminal = [f for f in frames if isinstance(f, FunctionCallResultFrame)]
+        assert [f.result for f in terminal] == [result]
+
+    @pytest.mark.asyncio
+    async def test_registered_http_handler_preserves_caller_cancellation(self):
+        started = asyncio.Event()
+
+        async def executor(**_kwargs):
+            started.set()
+            await asyncio.Event().wait()
+
+        (
+            task,
+            frames,
+            _terminal,
+            _outer_timeout,
+        ) = await self._run_http_handler_through_pipecat(executor)
+        await asyncio.wait_for(started.wait(), timeout=1)
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert not [f for f in frames if isinstance(f, FunctionCallResultFrame)]
+
+    @pytest.mark.asyncio
+    async def test_registered_http_handler_outer_deadline_emits_once(self):
+        started = asyncio.Event()
+
+        async def executor(**_kwargs):
+            started.set()
+            await asyncio.Event().wait()
+
+        (
+            task,
+            frames,
+            _terminal,
+            outer_timeout,
+        ) = await self._run_http_handler_through_pipecat(executor)
+        await asyncio.wait_for(started.wait(), timeout=1)
+        await asyncio.wait_for(task, timeout=1)
+
+        results = [f.result for f in frames if isinstance(f, FunctionCallResultFrame)]
+        assert results == [
+            {"status": "error", "error": "Request timed out after 0.02 seconds"}
+        ]
+        assert outer_timeout > 0.02
+
+    @pytest.mark.asyncio
+    async def test_registered_http_handler_ignores_late_executor_completion(self):
+        started = asyncio.Event()
+        release = asyncio.Event()
+        completed = asyncio.Event()
+        late_result = {"status": "success", "data": {"opened": True}}
+
+        async def executor(**_kwargs):
+            started.set()
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                await release.wait()
+            completed.set()
+            return late_result
+
+        (
+            task,
+            frames,
+            terminal,
+            _outer_timeout,
+        ) = await self._run_http_handler_through_pipecat(executor)
+        await asyncio.wait_for(started.wait(), timeout=1)
+        await asyncio.wait_for(terminal.wait(), timeout=1)
+        release.set()
+        await asyncio.wait_for(task, timeout=1)
+        await asyncio.wait_for(completed.wait(), timeout=1)
+
+        results = [f.result for f in frames if isinstance(f, FunctionCallResultFrame)]
+        assert len(results) == 1
+
+    @pytest.mark.asyncio
+    async def test_registered_http_handler_deadline_race_is_single_terminal(self):
+        for _ in range(20):
+
+            async def executor(**_kwargs):
+                await asyncio.sleep(0.01)
+                return {"status": "success"}
+
+            (
+                task,
+                frames,
+                _terminal,
+                _outer_timeout,
+            ) = await self._run_http_handler_through_pipecat(
+                executor,
+                timeout_ms=10,
+            )
+            await asyncio.wait_for(task, timeout=1)
+            results = [
+                f.result for f in frames if isinstance(f, FunctionCallResultFrame)
+            ]
+            assert len(results) == 1
+
     @pytest.mark.asyncio
     async def test_http_handler_forwards_tool_call_and_workflow_run_identity(self):
         """The handler forwards Pipecat and Dograh runtime identity unchanged."""
@@ -1483,7 +1666,7 @@ class TestCustomToolManagerUnit:
 
             # Verify handler was registered
             assert "api_call" in registered_handlers
-            assert registered_kwargs["api_call"]["timeout_secs"] == pytest.approx(5)
+        assert registered_kwargs["api_call"]["timeout_secs"] == pytest.approx(6)
 
         # Now test that the handler works
         handler = registered_handlers["api_call"]
