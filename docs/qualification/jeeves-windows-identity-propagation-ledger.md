@@ -106,3 +106,24 @@ Conclusion: zero active calls is proven at this observation boundary through run
 ## Mutation boundary
 
 No live object, image tag, service, endpoint, port, credential, workflow, tool, token, or provider was changed while creating this baseline. The Deck pilot and all 13 tools are inspect/compare-only protected state.
+
+## Dograh implementation and regression gates
+
+Identity transport commits:
+
+- `4731068` — `feat: support reserved HTTP tool runtime identity`
+- `4462a63` — `feat: propagate Pipecat tool call identity to HTTP tools`
+
+TDD and focused evidence:
+
+- Executor transport: eight new identity cases failed before implementation, then passed after implementation.
+- Handler propagation: five new propagation cases failed before implementation, then passed after implementation.
+- Final focused regression: `api/tests/test_custom_tools.py` — 59 passed.
+- Changed-file Ruff import/F401 check: passed.
+- Changed-file Ruff format check: passed.
+- Targeted mypy for both changed production modules: passed with zero issues.
+- `git diff --check`: passed.
+
+Full API regression evidence used an isolated `dograh_test` PostgreSQL database, Redis database 15, and local TypeScript-validator dependencies. It did not use or mutate deployed application data. The result was 913 passed and two failures. Both failures are the pre-existing suite-order class-identity assertions in `api/tests/test_openrouter_audio_provider.py`; that unchanged file passes 7/7 when run alone, and neither it nor its implementation is part of this change.
+
+The repository-wide wrapper gates have unrelated baseline defects: `scripts/lint.sh` passes an unsupported `--check` option to the installed Ruff, direct full-tree Ruff reports 125 pre-existing findings, and full-tree mypy has a pre-existing error backlog. Changed production and test files are clean under the focused formatter/lint/type gates above.

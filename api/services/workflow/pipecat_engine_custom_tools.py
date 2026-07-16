@@ -371,9 +371,7 @@ class CustomToolManager:
                         tool_uuid=str(tool.tool_uuid),
                         agent_scope=agent_scope,
                     )
-                    correlation = hashlib.sha256(tool_call_id.encode()).hexdigest()[
-                        :12
-                    ]
+                    correlation = hashlib.sha256(tool_call_id.encode()).hexdigest()[:12]
                     logger.info(
                         f"HTTP Tool EXECUTED: {function_name} "
                         f"(identity_sha256={correlation})"
