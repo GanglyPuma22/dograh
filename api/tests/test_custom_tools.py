@@ -444,7 +444,9 @@ class TestExecuteHttpTool:
         mock_client_class.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_legacy_tool_retains_exact_request_shape_with_reserved_arguments(self):
+    async def test_legacy_tool_retains_exact_request_shape_with_reserved_arguments(
+        self,
+    ):
         """A non-opted-in tool retains the exact pre-change mocked request shape."""
         tool = MockToolModel(
             tool_uuid="legacy-tool-uuid",
