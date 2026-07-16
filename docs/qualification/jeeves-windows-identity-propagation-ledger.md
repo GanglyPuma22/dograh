@@ -167,3 +167,30 @@ Post-restart Deck comparison matched Task 1 exactly:
 - redacted token metadata: `aa9332bc86a850977356bcba480d9d2eaebd3ed73ae140e06dc4fb3169539d89`.
 
 The protected workflow remained ID 1 / UUID `ae33eb50-0423-44a9-b431-d83432781017`, active on released definition 1; all 13 protected tools remained active; protected token ID 1 remained active at usage count 199. The rollback trap was not invoked.
+
+## Deployed fake-Windows identity qualification
+
+An internal-only instance of Jeeves Windows gateway commit `e878830c4ee1456dc59aa5abe854fd1598847326` ran on the existing Docker network with the repository's `FakeWindows`. It published no host port and used no provider, Deck backend, or real Windows path.
+
+Disposable staging receipt: `/home/mmounier/.openclaw/workspace/state/runs/dograh-jeeves-windows-identity-propagation-staging-receipts.json` (mode 0600). Exact created-and-deleted records:
+
+- workflow ID 2 / UUID `7685ea89-67ec-415c-8bad-c9ec4eb6a3df` / definition ID 2;
+- `windows_check_last_action`: tool ID 14 / UUID `1963b5e0-ebfc-4f9a-a35c-9c9025c6f8c3`;
+- `windows_find_app`: tool ID 15 / UUID `02d2a202-2561-4a4d-8b16-a01f5ffed160`;
+- `windows_focus_window`: tool ID 16 / UUID `fdd1cda3-b946-4551-bf52-c72be3ab2fd8`; and
+- `windows_open_app`: tool ID 17 / UUID `419566d0-f37e-4060-ab61-bbf186455c8a`.
+
+The deployed handler/executor produced these results:
+
+- synthetic text and voice lanes each preserved stable identity into a durable gateway mapping and returned HTTP 200 fake-Windows truth;
+- repeating the same logical call produced `cached=false` then `cached=true` with exactly one Windows invocation;
+- model-authored reserved identity fields failed with HTTP 400;
+- malformed identity failed with HTTP 400;
+- wrong `agent_scope` failed with HTTP 403;
+- an unknown tool route failed with HTTP 404;
+- a 100 ms Dograh timeout returned a structured timeout error and propagated gateway cancellation; and
+- cancelling the in-flight Dograh handler propagated `CancelledError`, issued no callback result, and propagated gateway cancellation.
+
+The fixture delta was five unique Windows invocations and two cancellations. No retry produced a second fake effect. Dograh logged only the SHA-256 identity correlation prefix and argument-key list at the handler layer; no raw runtime envelope or credential was emitted.
+
+The staging receipt printer initially encountered SQLAlchemy post-commit expiration after its transaction committed. Creation was not retried: exact IDs were recovered read-only through the unique marker and written immediately to the mode-0600 receipt. Cleanup then verified every ID/UUID/name relationship, zero runs, zero tokens, and the exact definition relationship before deleting only those disposable rows in one transaction. The fixture container and temporary runner were removed. All four protected Task 1 hashes returned exactly to baseline after cleanup.
