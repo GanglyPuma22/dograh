@@ -132,6 +132,25 @@ class HttpApiConfig(BaseModel):
         ge=1,
         description="Request timeout in milliseconds.",
     )
+    forward_runtime_identity: bool = Field(
+        default=False,
+        exclude_if=lambda value: value is False,
+        description=(
+            "Forward immutable Dograh runtime tool identity in the reserved "
+            "transport header."
+        ),
+    )
+    agent_scope: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[a-z][a-z0-9_]*$",
+        exclude_if=lambda value: value is None,
+        description=(
+            "Stable application scope required when runtime identity forwarding "
+            "is enabled."
+        ),
+    )
     customMessage: Optional[str] = Field(
         default=None, description="Custom message to play after tool execution."
     )
@@ -151,6 +170,18 @@ class HttpApiConfig(BaseModel):
         if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
             raise ValueError("method must be one of GET, POST, PUT, PATCH, DELETE")
         return method
+
+    @model_validator(mode="after")
+    def validate_runtime_identity_scope(self) -> "HttpApiConfig":
+        if self.forward_runtime_identity and self.agent_scope is None:
+            raise ValueError(
+                "agent_scope is required when runtime identity forwarding is enabled"
+            )
+        if not self.forward_runtime_identity and self.agent_scope is not None:
+            raise ValueError(
+                "agent_scope requires runtime identity forwarding to be enabled"
+            )
+        return self
 
 
 class EndCallConfig(BaseModel):
