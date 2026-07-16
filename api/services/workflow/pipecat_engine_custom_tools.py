@@ -35,6 +35,23 @@ from api.services.workflow.tools.custom_tool import (
     tool_to_function_schema,
 )
 
+HTTP_TOOL_TIMEOUT_MARGIN_RATIO = 0.1
+HTTP_TOOL_TIMEOUT_MARGIN_MIN_SECONDS = 1.0
+HTTP_TOOL_TIMEOUT_MARGIN_MAX_SECONDS = 5.0
+
+
+def _pipecat_http_tool_timeout(http_timeout_seconds: float) -> float:
+    """Leave bounded time for Dograh's HTTP result callback to settle."""
+    margin = min(
+        HTTP_TOOL_TIMEOUT_MARGIN_MAX_SECONDS,
+        max(
+            HTTP_TOOL_TIMEOUT_MARGIN_MIN_SECONDS,
+            http_timeout_seconds * HTTP_TOOL_TIMEOUT_MARGIN_RATIO,
+        ),
+    )
+    return http_timeout_seconds + margin
+
+
 if TYPE_CHECKING:
     from api.services.workflow.mcp_tool_session import McpToolSession
     from api.services.workflow.pipecat_engine import PipecatEngine
@@ -302,7 +319,8 @@ class CustomToolManager:
             timeout_ms = ((tool.definition or {}).get("config", {}) or {}).get(
                 "timeout_ms", 5000
             )
-            timeout_secs = float(timeout_ms) / 1000
+            http_timeout_secs = float(timeout_ms) / 1000
+            timeout_secs = _pipecat_http_tool_timeout(http_timeout_secs)
             handler = self._create_http_tool_handler(tool, function_name)
 
         return handler, timeout_secs
@@ -338,13 +356,25 @@ class CustomToolManager:
         async def http_tool_handler(
             function_call_params: FunctionCallParams,
         ) -> None:
+            terminal_sent = False
+
+            async def send_terminal_once(result: Any) -> None:
+                nonlocal terminal_sent
+                if terminal_sent:
+                    logger.warning(
+                        f"Ignoring duplicate HTTP tool result for '{function_name}'"
+                    )
+                    return
+                terminal_sent = True
+                await function_call_params.result_callback(result)
+
             try:
                 config = tool.definition.get("config", {}) if tool.definition else {}
                 runtime_identity = None
                 if config.get("forward_runtime_identity") is True:
                     tool_call_id = function_call_params.tool_call_id
                     if not isinstance(tool_call_id, str) or not tool_call_id.strip():
-                        await function_call_params.result_callback(
+                        await send_terminal_once(
                             {
                                 "status": "error",
                                 "error": (
@@ -357,7 +387,7 @@ class CustomToolManager:
 
                     agent_scope = config.get("agent_scope")
                     if not isinstance(agent_scope, str) or not agent_scope.strip():
-                        await function_call_params.result_callback(
+                        await send_terminal_once(
                             {
                                 "status": "error",
                                 "error": "Agent scope is required for this HTTP tool",
@@ -419,22 +449,55 @@ class CustomToolManager:
                         )
                     )
 
-                result = await execute_http_tool(
-                    tool=tool,
-                    arguments=function_call_params.arguments,
-                    call_context_vars=self._engine._call_context_vars,
-                    gathered_context_vars=self._engine._gathered_context,
-                    organization_id=await self.get_organization_id(),
-                    runtime_identity=runtime_identity,
+                http_timeout_seconds = float(config.get("timeout_ms", 5000)) / 1000
+                executor_task = asyncio.create_task(
+                    execute_http_tool(
+                        tool=tool,
+                        arguments=function_call_params.arguments,
+                        call_context_vars=self._engine._call_context_vars,
+                        gathered_context_vars=self._engine._gathered_context,
+                        organization_id=await self.get_organization_id(),
+                        runtime_identity=runtime_identity,
+                    )
                 )
 
-                await function_call_params.result_callback(result)
+                def consume_late_result(task: asyncio.Task) -> None:
+                    try:
+                        task.result()
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        logger.warning(
+                            f"HTTP tool '{function_name}' completed with an error "
+                            "after its result deadline"
+                        )
+
+                try:
+                    completed, _pending = await asyncio.wait(
+                        {executor_task}, timeout=http_timeout_seconds
+                    )
+                except asyncio.CancelledError:
+                    executor_task.cancel()
+                    executor_task.add_done_callback(consume_late_result)
+                    raise
+
+                if executor_task in completed:
+                    result = await executor_task
+                else:
+                    executor_task.cancel()
+                    executor_task.add_done_callback(consume_late_result)
+                    result = {
+                        "status": "error",
+                        "error": (
+                            f"Request timed out after {http_timeout_seconds} seconds"
+                        ),
+                    }
+
+                await send_terminal_once(result)
 
             except Exception as e:
                 logger.error(f"HTTP tool '{function_name}' execution failed: {e}")
-                await function_call_params.result_callback(
-                    {"status": "error", "error": str(e)}
-                )
+                await send_terminal_once({"status": "error", "error": str(e)})
 
         return http_tool_handler
 
