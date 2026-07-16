@@ -324,6 +324,11 @@ class HttpApiToolDefinition(BaseModel):
 
     schema_version: int = Field(default=1, description="Schema version.")
     type: Literal["http_api"] = Field(description="Tool type.")
+    metadata: Optional[Dict[str, str]] = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Non-secret ownership and routing metadata.",
+    )
     config: HttpApiConfig = Field(description="HTTP API configuration.")
 
 
