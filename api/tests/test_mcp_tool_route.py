@@ -29,6 +29,7 @@ from api.routes.tool import (
     UpdateToolRequest,
     _populate_discovered_tools,
     refresh_mcp_tools,
+    update_tool as update_tool_route,
 )
 from api.services.workflow.tools.mcp_tool import (
     validate_mcp_definition,
@@ -157,6 +158,30 @@ def test_update_tool_request_preserves_http_runtime_identity_configuration():
 
     assert persisted["config"]["forward_runtime_identity"] is True
     assert persisted["config"]["agent_scope"] == "jeeves_windows"
+
+
+@pytest.mark.asyncio
+async def test_update_http_tool_preserves_metadata_without_expanding_defaults(
+    monkeypatch,
+):
+    import api.routes.tool as tool_route
+
+    definition = {
+        **VALID_IDENTITY_HTTP_DEFINITION,
+        "metadata": {
+            "agent_scope": "jeeves_windows",
+            "owner": "jeeves_windows",
+            "route": "windows_find_app",
+        },
+    }
+    request = UpdateToolRequest(definition=definition)
+    update_mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(tool_route.db_client, "update_tool", update_mock)
+
+    with pytest.raises(HTTPException, match="Tool not found"):
+        await update_tool_route("tool-uuid", request, user=_fake_user())
+
+    assert update_mock.call_args.kwargs["definition"] == definition
 
 
 @pytest.mark.parametrize(

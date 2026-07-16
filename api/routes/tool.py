@@ -221,7 +221,9 @@ async def update_tool(
 
     definition = None
     if request.definition:
-        definition = request.definition.model_dump()
+        # An update may round-trip a previously stored sparse definition. Keep
+        # the caller-provided shape instead of expanding every schema default.
+        definition = request.definition.model_dump(exclude_unset=True)
         try:
             await validate_tool_credential_references(
                 definition,
