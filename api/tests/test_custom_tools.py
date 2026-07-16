@@ -1190,6 +1190,167 @@ class TestCustomToolManagerIntegration:
 class TestCustomToolManagerUnit:
     """Unit tests for CustomToolManager class."""
 
+    @staticmethod
+    def _identity_manager_and_tool():
+        from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
+
+        engine = Mock()
+        engine._workflow_run_id = 42
+        engine._call_context_vars = {"source": "voice"}
+        engine._gathered_context = {"topic": "apps"}
+        engine._fetch_recording_audio = None
+        tool = MockToolModel(
+            tool_uuid="windows-tool-uuid",
+            name="Windows Open App",
+            description="Open an app through Jeeves Windows",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://windows.example.com/tools/windows_open_app",
+                    "forward_runtime_identity": True,
+                    "agent_scope": "jeeves_windows",
+                },
+            },
+        )
+        manager = CustomToolManager(engine)
+        manager.get_organization_id = AsyncMock(return_value=7)
+        return manager, tool
+
+    @pytest.mark.asyncio
+    async def test_http_handler_forwards_tool_call_and_workflow_run_identity(self):
+        """The handler forwards Pipecat and Dograh runtime identity unchanged."""
+        manager, tool = self._identity_manager_and_tool()
+        handler = manager._create_http_tool_handler(tool, "windows_open_app")
+        result_callback = AsyncMock()
+        params = Mock(
+            tool_call_id="call_open_app_123",
+            arguments={"app_id": "app:v1:spotify"},
+            result_callback=result_callback,
+        )
+
+        with patch(
+            "api.services.workflow.pipecat_engine_custom_tools.execute_http_tool",
+            new_callable=AsyncMock,
+            return_value={"status": "success", "data": {"opened": True}},
+        ) as mock_execute:
+            await handler(params)
+
+        identity = mock_execute.await_args.kwargs["runtime_identity"]
+        assert identity.tool_call_id == "call_open_app_123"
+        assert identity.workflow_run_id == "42"
+        assert identity.tool_uuid == "windows-tool-uuid"
+        assert identity.agent_scope == "jeeves_windows"
+        result_callback.assert_awaited_once_with(
+            {"status": "success", "data": {"opened": True}}
+        )
+
+    @pytest.mark.asyncio
+    async def test_http_handler_reuses_identity_for_same_logical_tool_call(self):
+        """Repeated delivery of one Pipecat call forwards identical identity."""
+        manager, tool = self._identity_manager_and_tool()
+        handler = manager._create_http_tool_handler(tool, "windows_open_app")
+        params = Mock(
+            tool_call_id="call_retry_123",
+            arguments={"app_id": "app:v1:spotify"},
+            result_callback=AsyncMock(),
+        )
+
+        with patch(
+            "api.services.workflow.pipecat_engine_custom_tools.execute_http_tool",
+            new_callable=AsyncMock,
+            return_value={"status": "success"},
+        ) as mock_execute:
+            await handler(params)
+            await handler(params)
+
+        identities = [
+            awaited.kwargs["runtime_identity"]
+            for awaited in mock_execute.await_args_list
+        ]
+        assert identities[0] == identities[1]
+
+    @pytest.mark.asyncio
+    async def test_http_handler_does_not_collide_distinct_tool_calls(self):
+        """Distinct Pipecat call IDs remain distinct at the HTTP executor."""
+        manager, tool = self._identity_manager_and_tool()
+        handler = manager._create_http_tool_handler(tool, "windows_open_app")
+
+        with patch(
+            "api.services.workflow.pipecat_engine_custom_tools.execute_http_tool",
+            new_callable=AsyncMock,
+            return_value={"status": "success"},
+        ) as mock_execute:
+            for tool_call_id in ("call_first_123", "call_second_456"):
+                await handler(
+                    Mock(
+                        tool_call_id=tool_call_id,
+                        arguments={"app_id": "app:v1:spotify"},
+                        result_callback=AsyncMock(),
+                    )
+                )
+
+        identities = [
+            awaited.kwargs["runtime_identity"]
+            for awaited in mock_execute.await_args_list
+        ]
+        assert identities[0].tool_call_id != identities[1].tool_call_id
+
+    @pytest.mark.asyncio
+    async def test_http_handler_rejects_missing_pipecat_tool_call_id(self):
+        """An opted-in handler fails closed before executor I/O without a stable ID."""
+        manager, tool = self._identity_manager_and_tool()
+        handler = manager._create_http_tool_handler(tool, "windows_open_app")
+        result_callback = AsyncMock()
+        params = Mock(
+            tool_call_id="",
+            arguments={"app_id": "app:v1:spotify"},
+            result_callback=result_callback,
+        )
+
+        with patch(
+            "api.services.workflow.pipecat_engine_custom_tools.execute_http_tool",
+            new_callable=AsyncMock,
+        ) as mock_execute:
+            await handler(params)
+
+        mock_execute.assert_not_awaited()
+        result_callback.assert_awaited_once_with(
+            {
+                "status": "error",
+                "error": "Stable tool call identity is required for this HTTP tool",
+            }
+        )
+
+    @pytest.mark.asyncio
+    async def test_http_handler_rejects_missing_agent_scope(self):
+        """An opted-in handler requires explicit Dograh-owned agent scope."""
+        manager, tool = self._identity_manager_and_tool()
+        del tool.definition["config"]["agent_scope"]
+        handler = manager._create_http_tool_handler(tool, "windows_open_app")
+        result_callback = AsyncMock()
+        params = Mock(
+            tool_call_id="call_open_app_123",
+            arguments={"app_id": "app:v1:spotify"},
+            result_callback=result_callback,
+        )
+
+        with patch(
+            "api.services.workflow.pipecat_engine_custom_tools.execute_http_tool",
+            new_callable=AsyncMock,
+        ) as mock_execute:
+            await handler(params)
+
+        mock_execute.assert_not_awaited()
+        result_callback.assert_awaited_once_with(
+            {
+                "status": "error",
+                "error": "Agent scope is required for this HTTP tool",
+            }
+        )
+
     @pytest.mark.asyncio
     async def test_get_tool_schemas_returns_correct_format(self):
         """Test that get_tool_schemas returns FunctionSchema objects."""

@@ -7,6 +7,7 @@ during workflow execution.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 import time
 import uuid
@@ -29,6 +30,7 @@ from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.transfer_event_protocol import TransferContext
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
 from api.services.workflow.tools.custom_tool import (
+    HttpToolRuntimeIdentity,
     execute_http_tool,
     tool_to_function_schema,
 )
@@ -336,13 +338,54 @@ class CustomToolManager:
         async def http_tool_handler(
             function_call_params: FunctionCallParams,
         ) -> None:
-            logger.info(f"HTTP Tool EXECUTED: {function_name}")
-            logger.info(f"Arguments: {function_call_params.arguments}")
-
             try:
+                config = tool.definition.get("config", {}) if tool.definition else {}
+                runtime_identity = None
+                if config.get("forward_runtime_identity") is True:
+                    tool_call_id = function_call_params.tool_call_id
+                    if not isinstance(tool_call_id, str) or not tool_call_id.strip():
+                        await function_call_params.result_callback(
+                            {
+                                "status": "error",
+                                "error": (
+                                    "Stable tool call identity is required for this "
+                                    "HTTP tool"
+                                ),
+                            }
+                        )
+                        return
+
+                    agent_scope = config.get("agent_scope")
+                    if not isinstance(agent_scope, str) or not agent_scope.strip():
+                        await function_call_params.result_callback(
+                            {
+                                "status": "error",
+                                "error": "Agent scope is required for this HTTP tool",
+                            }
+                        )
+                        return
+
+                    runtime_identity = HttpToolRuntimeIdentity(
+                        tool_call_id=tool_call_id,
+                        workflow_run_id=str(self._engine._workflow_run_id),
+                        tool_uuid=str(tool.tool_uuid),
+                        agent_scope=agent_scope,
+                    )
+                    correlation = hashlib.sha256(tool_call_id.encode()).hexdigest()[
+                        :12
+                    ]
+                    logger.info(
+                        f"HTTP Tool EXECUTED: {function_name} "
+                        f"(identity_sha256={correlation})"
+                    )
+                else:
+                    logger.info(f"HTTP Tool EXECUTED: {function_name}")
+                logger.debug(
+                    f"Argument keys: {list((function_call_params.arguments or {}).keys())}"
+                )
+
                 # Queue custom message before executing the API call
                 # Queue custom message (text or audio) before executing the API call
-                config = tool.definition.get("config", {}) if tool.definition else {}
                 custom_msg_type = config.get("customMessageType", "text")
                 custom_message = config.get("customMessage", "")
                 if custom_msg_type == "audio":
@@ -384,6 +427,7 @@ class CustomToolManager:
                     call_context_vars=self._engine._call_context_vars,
                     gathered_context_vars=self._engine._gathered_context,
                     organization_id=await self.get_organization_id(),
+                    runtime_identity=runtime_identity,
                 )
 
                 await function_call_params.result_callback(result)
