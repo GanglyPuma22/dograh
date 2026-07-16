@@ -127,3 +127,19 @@ TDD and focused evidence:
 Full API regression evidence used an isolated `dograh_test` PostgreSQL database, Redis database 15, and local TypeScript-validator dependencies. It did not use or mutate deployed application data. The result was 913 passed and two failures. Both failures are the pre-existing suite-order class-identity assertions in `api/tests/test_openrouter_audio_provider.py`; that unchanged file passes 7/7 when run alone, and neither it nor its implementation is part of this change.
 
 The repository-wide wrapper gates have unrelated baseline defects: `scripts/lint.sh` passes an unsupported `--check` option to the installed Ruff, direct full-tree Ruff reports 125 pre-existing findings, and full-tree mypy has a pre-existing error backlog. Changed production and test files are clean under the focused formatter/lint/type gates above.
+
+## Immutable candidate and rollback image receipt
+
+- Candidate source SHA: `c202e8b5bba1be2164746b9060e5b12da43599e6`.
+- Candidate tag: `dograh-local-api:c202e8b5bba1`.
+- Candidate immutable digest: `sha256:7bbc1bdd6a307ed14be991568f3806f9ce89bea8935f18c3cf4e6bba93a5ca02`.
+- Rollback tag: `dograh-local-api:rollback-4a9b5ca87df6`.
+- Rollback immutable digest: `sha256:4a9b5ca87df6c8724c4a2b92a69ea44f301791583b3d106cbf5e17dfab2c29e7`.
+- The mutable deployment tag and running API remained on the rollback digest throughout this build/smoke task.
+
+The image was built directly from the clean committed worktree through `api/Dockerfile`, without moving the deployment tag. The candidate's two changed production-file hashes exactly match the files at the source SHA:
+
+- `custom_tool.py`: `10ee9b9e9626ecc36f9bb75830a300b1ac57f3db4f1c419cc6628e6d9ea7f988`.
+- `pipecat_engine_custom_tools.py`: `29492cd730f843c619f911bcea0075c028862c40e8e027ef225afe04c8e486c9`.
+
+An unexposed ephemeral candidate container used only the isolated `dograh_test` database and Redis database 15. Its internal `/api/v1/health` returned HTTP 200. A no-network executor smoke proved the opted-in header and unchanged model body, fail-closed missing identity before I/O, and byte-equivalent legacy request shape. The startup script validation also passed. The ephemeral container was removed, and no protected Deck workflow/tool/token or deployed application data was read or changed by these image checks.
