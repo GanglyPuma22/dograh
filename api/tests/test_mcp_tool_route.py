@@ -47,6 +47,17 @@ VALID_MCP_DEFINITION = {
     },
 }
 
+VALID_IDENTITY_HTTP_DEFINITION = {
+    "schema_version": 1,
+    "type": "http_api",
+    "config": {
+        "method": "POST",
+        "url": "https://windows.example.test/tools/find_app",
+        "forward_runtime_identity": True,
+        "agent_scope": "jeeves_windows",
+    },
+}
+
 
 # ── Part A regression: CreateToolRequest / UpdateToolRequest validation ───────
 
@@ -125,6 +136,74 @@ def test_update_tool_request_accepts_http_api_complex_parameter_types():
     parameters = req.definition.config.parameters
     assert parameters[0].type == "object"
     assert parameters[1].type == "array"
+
+
+def test_create_tool_request_preserves_http_runtime_identity_configuration():
+    req = CreateToolRequest(
+        name="Windows Find App",
+        definition=VALID_IDENTITY_HTTP_DEFINITION,
+    )
+
+    persisted = req.definition.model_dump()
+
+    assert persisted["config"]["forward_runtime_identity"] is True
+    assert persisted["config"]["agent_scope"] == "jeeves_windows"
+
+
+def test_update_tool_request_preserves_http_runtime_identity_configuration():
+    req = UpdateToolRequest(definition=VALID_IDENTITY_HTTP_DEFINITION)
+
+    persisted = req.definition.model_dump()
+
+    assert persisted["config"]["forward_runtime_identity"] is True
+    assert persisted["config"]["agent_scope"] == "jeeves_windows"
+
+
+@pytest.mark.parametrize(
+    "config_overrides",
+    [
+        {"forward_runtime_identity": True},
+        {"forward_runtime_identity": True, "agent_scope": ""},
+        {"forward_runtime_identity": True, "agent_scope": "   "},
+        {"forward_runtime_identity": True, "agent_scope": "a" * 129},
+        {"forward_runtime_identity": True, "agent_scope": "Jeeves-Windows"},
+        {"forward_runtime_identity": False, "agent_scope": "jeeves_windows"},
+    ],
+)
+def test_http_runtime_identity_configuration_rejects_unsafe_pairings(
+    config_overrides,
+):
+    definition = {
+        "schema_version": 1,
+        "type": "http_api",
+        "config": {
+            "method": "POST",
+            "url": "https://windows.example.test/tools/find_app",
+            **config_overrides,
+        },
+    }
+
+    with pytest.raises(ValidationError):
+        CreateToolRequest(name="Invalid identity tool", definition=definition)
+
+
+def test_legacy_http_tool_dump_omits_runtime_identity_defaults():
+    req = CreateToolRequest(
+        name="Legacy HTTP tool",
+        definition={
+            "schema_version": 1,
+            "type": "http_api",
+            "config": {
+                "method": "POST",
+                "url": "https://legacy.example.test/tool",
+            },
+        },
+    )
+
+    persisted = req.definition.model_dump()
+
+    assert "forward_runtime_identity" not in persisted["config"]
+    assert "agent_scope" not in persisted["config"]
 
 
 def test_create_tool_request_accepts_mcp_with_all_fields():

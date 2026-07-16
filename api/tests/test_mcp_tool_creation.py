@@ -88,6 +88,35 @@ async def test_mcp_create_tool_creates_reusable_tool(authed_user: MagicMock):
 
 
 @pytest.mark.asyncio
+async def test_mcp_create_tool_preserves_http_runtime_identity_configuration(
+    authed_user: MagicMock,
+):
+    create_tool_mock = AsyncMock(return_value=_tool_model())
+
+    with (
+        patch(
+            "api.mcp_server.tools.tool_creation.authenticate_mcp_request",
+            AsyncMock(return_value=authed_user),
+        ),
+        patch(
+            "api.services.tool_management.db_client.create_tool",
+            create_tool_mock,
+        ),
+        patch("api.services.tool_management.capture_event"),
+    ):
+        await create_tool(
+            _http_tool_request(
+                forward_runtime_identity=True,
+                agent_scope="jeeves_windows",
+            )
+        )
+
+    persisted = create_tool_mock.call_args.kwargs["definition"]["config"]
+    assert persisted["forward_runtime_identity"] is True
+    assert persisted["agent_scope"] == "jeeves_windows"
+
+
+@pytest.mark.asyncio
 async def test_mcp_create_tool_rejects_unknown_credential(authed_user: MagicMock):
     create_tool_mock = AsyncMock()
 
@@ -132,6 +161,11 @@ def test_sdk_openapi_exposes_create_tool_schema_and_llm_hints():
         "credential_uuid"
     ]
     assert "list_credentials" in credential_schema["llm_hint"]
+    http_properties = spec["components"]["schemas"]["HttpApiConfig"]["properties"]
+    assert http_properties["forward_runtime_identity"]["default"] is False
+    scope_schema = http_properties["agent_scope"]["anyOf"][0]
+    assert scope_schema["maxLength"] == 128
+    assert scope_schema["pattern"] == "^[a-z][a-z0-9_]*$"
 
 
 @pytest.mark.asyncio
@@ -162,3 +196,7 @@ async def test_mcp_create_tool_schema_includes_validation_and_llm_hints():
     assert (
         "list_credentials" in http_config["properties"]["credential_uuid"]["llm_hint"]
     )
+    assert http_config["properties"]["forward_runtime_identity"]["default"] is False
+    scope_schema = http_config["properties"]["agent_scope"]["anyOf"][0]
+    assert scope_schema["maxLength"] == 128
+    assert scope_schema["pattern"] == "^[a-z][a-z0-9_]*$"
