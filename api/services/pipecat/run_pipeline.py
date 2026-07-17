@@ -784,8 +784,10 @@ async def _run_pipeline(
     feedback_observer = RealtimeFeedbackObserver(
         ws_sender=ws_sender,
         logs_buffer=in_memory_logs_buffer,
+        workflow_run_id=workflow_run_id,
     )
     task.add_observer(feedback_observer)
+    await feedback_observer.emit_media_start()
 
     # Register latency observer to log user-to-bot response latency
     if task.user_bot_latency_observer:

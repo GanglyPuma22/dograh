@@ -1,8 +1,38 @@
 """Shared helpers for building and ordering realtime feedback events."""
 
+from hashlib import sha256
 from typing import Any
 
 from pipecat.utils.enums import RealtimeFeedbackType
+
+
+JEEVES_TIMING_EVENT = "rtf-jeeves-timing"
+
+
+def build_jeeves_timing_event(
+    *,
+    workflow_run_id: int,
+    stage: str,
+    observed_at_unix_ms: int,
+    elapsed_ms: int,
+    tool_call_id: str | None = None,
+) -> dict[str, Any]:
+    """Build the allowlisted, transcript-free timing event consumed by Jeeves.
+
+    The trace uses the same ``vs_`` derivation as the adjacent gateway's
+    workflow-run conversation identity, without exposing the raw run id.
+    """
+    conversation_id = f"vs_{sha256(str(workflow_run_id).encode()).hexdigest()}"
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "trace_id": sha256(conversation_id.encode()).hexdigest(),
+        "stage": stage,
+        "observed_at_unix_ms": observed_at_unix_ms,
+        "elapsed_ms": elapsed_ms,
+    }
+    if tool_call_id is not None:
+        payload["tool_call_id"] = tool_call_id
+    return {"type": JEEVES_TIMING_EVENT, "payload": payload}
 
 
 def build_node_transition_event(
