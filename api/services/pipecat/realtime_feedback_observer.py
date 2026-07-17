@@ -21,6 +21,7 @@ node changes.
 """
 
 import json
+import time
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Set
 
 from loguru import logger
@@ -29,6 +30,7 @@ from api.services.pipecat.realtime_feedback_events import (
     build_bot_text_event,
     build_function_call_end_event,
     build_function_call_start_event,
+    build_jeeves_timing_event,
     build_pipeline_error_event,
     build_ttfb_metric_event,
     build_user_transcription_event,
@@ -52,6 +54,7 @@ from pipecat.frames.frames import (
     TranscriptionFrame,
     TTSSpeakFrame,
     TTSTextFrame,
+    UserStoppedSpeakingFrame,
     UserMuteStartedFrame,
     UserMuteStoppedFrame,
 )
@@ -83,6 +86,9 @@ class RealtimeFeedbackObserver(BaseObserver):
         self,
         ws_sender: Callable[[dict], Awaitable[None]],
         logs_buffer: Optional["InMemoryLogsBuffer"] = None,
+        workflow_run_id: int | None = None,
+        now_unix_ms: Callable[[], int] | None = None,
+        started_at_unix_ms: int | None = None,
     ):
         """
         Args:
@@ -94,6 +100,17 @@ class RealtimeFeedbackObserver(BaseObserver):
         self._ws_sender = ws_sender
         self._logs_buffer = logs_buffer
         self._frames_seen: Set[str] = set()
+        self._workflow_run_id = workflow_run_id
+        self._now_unix_ms = now_unix_ms or (lambda: time.time_ns() // 1_000_000)
+        self._started_at_unix_ms = (
+            started_at_unix_ms
+            if started_at_unix_ms is not None
+            else self._now_unix_ms()
+        )
+
+    async def emit_media_start(self):
+        """Emit the server-side media start without persisting call content."""
+        await self._send_timing("media_start")
 
     async def cleanup(self):
         """Clean up resources. Must be called when the observer is no longer needed."""
@@ -138,6 +155,7 @@ class RealtimeFeedbackObserver(BaseObserver):
             return
         # Bot speaking state - WS only (ephemeral state signals, not persisted)
         elif isinstance(frame, BotStartedSpeakingFrame):
+            await self._send_timing("tts_first_audio")
             await self._send_ws(
                 {"type": RealtimeFeedbackType.BOT_STARTED_SPEAKING.value, "payload": {}}
             )
@@ -154,6 +172,8 @@ class RealtimeFeedbackObserver(BaseObserver):
             await self._send_ws(
                 {"type": RealtimeFeedbackType.USER_MUTE_STOPPED.value, "payload": {}}
             )
+        elif isinstance(frame, UserStoppedSpeakingFrame):
+            await self._send_timing("speech_end")
         # Handle user transcriptions (interim) - WebSocket only
         elif isinstance(frame, InterimTranscriptionFrame):
             await self._send_ws(
@@ -167,6 +187,7 @@ class RealtimeFeedbackObserver(BaseObserver):
         # Handle user transcriptions (final) - WebSocket only
         # Complete turn text is persisted via register_turn_handlers
         elif isinstance(frame, TranscriptionFrame):
+            await self._send_timing("stt_final")
             await self._send_ws(
                 build_user_transcription_event(
                     text=frame.text,
@@ -198,6 +219,10 @@ class RealtimeFeedbackObserver(BaseObserver):
             isinstance(frame, FunctionCallInProgressFrame)
             and frame_direction == FrameDirection.DOWNSTREAM
         ):
+            await self._send_timing(
+                "llm_first_token_or_tool_call",
+                tool_call_id=frame.tool_call_id,
+            )
             await self._send_message(
                 build_function_call_start_event(
                     function_name=frame.function_name,
@@ -224,6 +249,7 @@ class RealtimeFeedbackObserver(BaseObserver):
                 if isinstance(metric_data, TTFBMetricsData):
                     # Only send TTFB if it's from an LLM processor
                     if metric_data.processor and "LLM" in metric_data.processor:
+                        await self._send_timing("llm_first_token_or_tool_call")
                         await self._send_message(
                             build_ttfb_metric_event(
                                 ttfb_seconds=metric_data.value,
@@ -278,6 +304,20 @@ class RealtimeFeedbackObserver(BaseObserver):
             await self._ws_sender(message)
         except Exception as e:
             logger.debug(f"Failed to send real-time feedback message: {e}")
+
+    async def _send_timing(self, stage: str, *, tool_call_id: str | None = None):
+        if self._workflow_run_id is None:
+            return
+        observed = self._now_unix_ms()
+        await self._send_ws(
+            build_jeeves_timing_event(
+                workflow_run_id=self._workflow_run_id,
+                stage=stage,
+                observed_at_unix_ms=observed,
+                elapsed_ms=max(0, observed - self._started_at_unix_ms),
+                tool_call_id=tool_call_id,
+            )
+        )
 
     async def _send_message(self, message: dict):
         """Send message via WebSocket AND append to logs buffer."""
