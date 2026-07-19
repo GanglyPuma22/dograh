@@ -329,8 +329,8 @@ async def initialize_embed_session(
             origin=origin[:255],
             expires_at=datetime.now(UTC) + timedelta(hours=1),  # 1 hour expiry
         )
-    except Exception as e:
-        logger.error(f"Failed to create embed session: {e}")
+    except Exception:
+        logger.exception("Failed to create embed session")
         raise HTTPException(status_code=500, detail="Failed to create session")
 
     # Increment usage count
@@ -462,8 +462,7 @@ async def get_public_turn_credentials(
         )
 
     try:
-        # Use session token as identifier for TURN credentials
-        credentials = generate_turn_credentials(f"embed:{session_token[:16]}")
+        credentials = generate_turn_credentials(f"embed-run:{embed_session.workflow_run_id}")
         return TurnCredentialsResponse(**credentials)
     except Exception as e:
         logger.error(f"Failed to generate TURN credentials for embed session: {e}")

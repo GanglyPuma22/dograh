@@ -4,6 +4,9 @@ server {
     listen 80;
     server_name __DOGRAH_PUBLIC_HOST__;
 
+    # Request paths carry short-lived bearer tokens for media bootstrap.
+    access_log off;
+
     # Redirect all HTTP to HTTPS
     return 301 https://$host$request_uri;
 }
@@ -11,6 +14,9 @@ server {
 server {
     listen 443 ssl;
     server_name __DOGRAH_PUBLIC_HOST__;
+
+    # API structured logs remain available without persisting bearer-token URIs.
+    access_log off;
 
     ssl_certificate     /etc/nginx/certs/local.crt;
     ssl_certificate_key /etc/nginx/certs/local.key;

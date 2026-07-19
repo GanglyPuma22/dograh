@@ -240,7 +240,11 @@ class EmbedTokenClient(BaseDBClient):
             await session.commit()
             await session.refresh(embed_session)
 
-            logger.info(f"Created embed session {session_token}")
+            logger.info(
+                "Created embed session id={} workflow_run_id={}",
+                embed_session.id,
+                workflow_run_id,
+            )
             return embed_session
 
     async def get_embed_session_by_token(

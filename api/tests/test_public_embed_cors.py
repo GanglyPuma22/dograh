@@ -78,9 +78,9 @@ def _patch_db(monkeypatch):
 
     async def _get_session(session_token):
         if session_token == "session-valid":
-            return SimpleNamespace(embed_token_id=_ACTIVE_TOKEN.id, expires_at=None)
+            return SimpleNamespace(embed_token_id=_ACTIVE_TOKEN.id, workflow_run_id=101, expires_at=None)
         if session_token == "session-restricted":
-            return SimpleNamespace(embed_token_id=_RESTRICTED_TOKEN.id, expires_at=None)
+            return SimpleNamespace(embed_token_id=_RESTRICTED_TOKEN.id, workflow_run_id=102, expires_at=None)
         return None
 
     async def _create_workflow_run(**_kwargs):
