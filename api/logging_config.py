@@ -1,6 +1,8 @@
 import logging
 import os
+import re
 import sys
+import traceback
 
 import loguru
 from pipecat.utils.run_context import run_id_var
@@ -20,6 +22,15 @@ from api.utils.worker import get_worker_id, is_worker_process
 # Track if logging has been initialized
 _logging_initialized = False
 
+_SENSITIVE_ROUTE_TOKEN = re.compile(
+    r"(/api/v1/(?:public/embed/turn-credentials|ws/public/signaling)/)[^\s/?#\"']+"
+)
+
+
+def sanitize_sensitive_paths(message: str) -> str:
+    """Redact bearer-token path segments before any application log sink sees them."""
+    return _SENSITIVE_ROUTE_TOKEN.sub(r"\1[REDACTED]", message)
+
 
 class InterceptHandler(logging.Handler):
     """
@@ -36,9 +47,13 @@ class InterceptHandler(logging.Handler):
 
         # Use the original record's information instead of trying to find the caller
         # This preserves the logger name (e.g., "uvicorn.access") in the logs
-        loguru.logger.patch(lambda r: r.update(name=record.name)).opt(
-            exception=record.exc_info
-        ).log(level, record.getMessage())
+        message = sanitize_sensitive_paths(record.getMessage())
+        if record.exc_info:
+            exception_text = sanitize_sensitive_paths(
+                "".join(traceback.format_exception(*record.exc_info))
+            )
+            message = f"{message}\n{exception_text}"
+        loguru.logger.patch(lambda r: r.update(name=record.name)).log(level, message)
 
 
 def inject_run_id(record):
