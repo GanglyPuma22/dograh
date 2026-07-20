@@ -14,11 +14,11 @@ The authenticated Jeeves Windows media bootstrap is working through session mint
 
 - Worktree: `/home/mmounier/.config/superpowers/worktrees/dograh/jeeves-windows-identity-propagation`
 - Branch: `feature/jeeves-windows-identity-propagation`
-- Required starting revision: `eec358c`
+- Required implementation baseline (must be an ancestor of HEAD): `eec358c`
 - Approved design commit: `fb62608`
 - Approved plan commit: `eec358c`
 
-Verify the branch, revision, ancestry, and tracked cleanliness before editing. The existing untracked `.openclaw/` directory is unrelated user state: preserve it, do not inspect it unnecessarily, do not add it, and do not delete it.
+Verify the branch, confirm `git merge-base --is-ancestor eec358c HEAD`, and verify tracked cleanliness before editing. HEAD is expected to be later than `eec358c` because the handoff itself is committed after the plan. The existing untracked `.openclaw/` directory is unrelated user state: preserve it, do not inspect it unnecessarily, do not add it, and do not delete it.
 
 Do not create another worktree. Work only in the named worktree.
 
