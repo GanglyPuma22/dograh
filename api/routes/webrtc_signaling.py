@@ -30,7 +30,7 @@ from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 from starlette.websockets import WebSocketState
 
-from api.constants import ENVIRONMENT, FORCE_TURN_RELAY
+from api.constants import ENVIRONMENT, FORCE_TURN_RELAY, TURN_INTERNAL_HOST
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import Environment
@@ -204,10 +204,12 @@ def get_ice_servers(user_id: Optional[str] = None) -> List[RTCIceServer]:
     if not TURN_HOST:
         return servers
 
-    # Use time-limited credentials if TURN_SECRET is configured (recommended)
+    # Use time-limited credentials if TURN_SECRET is configured (recommended).
+    # The server-side peer reaches coturn via TURN_INTERNAL_HOST (defaults to
+    # TURN_HOST); clients keep receiving TURN_HOST from the credential routes.
     if TURN_SECRET and user_id:
         try:
-            credentials = generate_turn_credentials(user_id)
+            credentials = generate_turn_credentials(user_id, host=TURN_INTERNAL_HOST)
             servers.append(
                 RTCIceServer(
                     urls=credentials["uris"],

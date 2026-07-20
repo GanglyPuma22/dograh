@@ -133,6 +133,11 @@ DEFAULT_CIRCUIT_BREAKER_CONFIG = {
 
 TURN_SECRET = os.getenv("TURN_SECRET")
 TURN_HOST = os.getenv("TURN_HOST", "localhost")
+# TURN host for the server-side aiortc peer only. A containerized API may need
+# a different route to coturn (e.g. host.docker.internal) than the
+# client-visible TURN_HOST. Defaults to TURN_HOST; an empty value (compose
+# renders "${TURN_INTERNAL_HOST:-}") is treated as absent.
+TURN_INTERNAL_HOST = os.getenv("TURN_INTERNAL_HOST") or TURN_HOST
 TURN_PORT = int(os.getenv("TURN_PORT", "3478"))
 TURN_TLS_PORT = int(os.getenv("TURN_TLS_PORT", "5349"))
 TURN_CREDENTIAL_TTL = int(os.getenv("TURN_CREDENTIAL_TTL", "86400"))
