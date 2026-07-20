@@ -146,10 +146,10 @@ function Assert-PathExists([string]$Path, [string]$Message) {
 }
 
 Write-Info ''
-Write-Info '╔══════════════════════════════════════════════════════════════╗'
-Write-Info '║                    Dograh Local Setup                        ║'
-Write-Info '║       Local docker deployment, optional TURN server          ║'
-Write-Info '╚══════════════════════════════════════════════════════════════╝'
+Write-Info '================================================================'
+Write-Info '                     Dograh Local Setup'
+Write-Info '        Local docker deployment, optional TURN server'
+Write-Info '================================================================'
 Write-Info ''
 
 if ([string]::IsNullOrEmpty($env:ENABLE_COTURN)) {
@@ -166,6 +166,8 @@ if ([string]::IsNullOrEmpty($env:ENABLE_COTURN)) {
 
 $UseCoturn = Test-IsEnabled $EnableCoturn
 $TurnHost = $env:TURN_HOST
+$TurnInternalHost = $env:TURN_INTERNAL_HOST
+$TurnExternalIp = $env:TURN_EXTERNAL_IP
 $TurnSecret = $env:TURN_SECRET
 $ForceTurnRelay = if ([string]::IsNullOrEmpty($env:FORCE_TURN_RELAY)) { 'false' } else { $env:FORCE_TURN_RELAY }
 
@@ -176,7 +178,7 @@ if ($UseCoturn) {
     }
 
     if ([string]::IsNullOrEmpty($TurnHost)) {
-        Write-Warn 'Enter the host browsers AND the API container will use to reach TURN'
+        Write-Warn 'Enter the client-visible host browsers will use to reach TURN'
         Write-Warn "(press Enter for $defaultTurnHost):"
         $TurnHost = Read-Host '>'
     }
@@ -186,6 +188,18 @@ if ($UseCoturn) {
 
     if ($TurnHost -notmatch '^[A-Za-z0-9.-]+$') {
         Fail 'TURN host must be an IP address or hostname'
+    }
+
+    # Optional advanced env inputs for split-host installs (no prompts).
+    # TURN_INTERNAL_HOST: address the API container uses to reach coturn
+    # (defaults to TURN_HOST). TURN_EXTERNAL_IP: explicit coturn NAT mapping
+    # such as 10.0.0.133/172.28.0.8 (defaults to TURN_HOST). Same-LAN
+    # installs need no router forwarding.
+    if (-not [string]::IsNullOrEmpty($TurnInternalHost) -and $TurnInternalHost -notmatch '^[A-Za-z0-9.-]+$') {
+        Fail 'TURN_INTERNAL_HOST must be an IP address or hostname'
+    }
+    if (-not [string]::IsNullOrEmpty($TurnExternalIp) -and $TurnExternalIp -notmatch '^([0-9]{1,3}\.){3}[0-9]{1,3}(/([0-9]{1,3}\.){3}[0-9]{1,3})?$') {
+        Fail 'TURN_EXTERNAL_IP must be an IPv4 address or a public-ip/private-ip pair'
     }
 
     if ([string]::IsNullOrEmpty($TurnSecret)) {
@@ -208,6 +222,12 @@ Write-Success 'Configuration:'
 Write-Host "  Coturn:        $EnableCoturn" -ForegroundColor Blue
 if ($UseCoturn) {
     Write-Host "  TURN Host:     $TurnHost" -ForegroundColor Blue
+    if (-not [string]::IsNullOrEmpty($TurnInternalHost)) {
+        Write-Host "  TURN internal: $TurnInternalHost" -ForegroundColor Blue
+    }
+    if (-not [string]::IsNullOrEmpty($TurnExternalIp)) {
+        Write-Host "  TURN ext. IP:  $TurnExternalIp" -ForegroundColor Blue
+    }
     Write-Host '  TURN Secret:   ********' -ForegroundColor Blue
     Write-Host "  Force relay:   $ForceTurnRelay" -ForegroundColor Blue
 }
@@ -230,7 +250,7 @@ if ($env:DOGRAH_SKIP_DOWNLOAD -ne '1') {
         Download-InitSupportBundle $CurrentDir 'main'
     }
 
-    Write-Success '✓ Deployment files downloaded'
+    Write-Success 'OK - Deployment files downloaded'
 } else {
     Write-Info "[1/$TotalSteps] Using docker-compose.yaml in current directory"
 }
@@ -253,7 +273,7 @@ $envLines = @(
     "OSS_JWT_SECRET=$ossJwtSecret"
     ''
     '# PostgreSQL password. Used by the postgres container on first init and by'
-    "# the API's DATABASE_URL. Do not change after the first start — the password"
+    "# the API's DATABASE_URL. Do not change after the first start -- the password"
     '# is baked into the postgres data volume when it is first created.'
     "POSTGRES_PASSWORD=$postgresPassword"
     ''
@@ -268,21 +288,36 @@ if ($UseCoturn) {
     $envLines += @(
         ''
         '# TURN Server Configuration (time-limited credentials via TURN REST API)'
+        '# TURN_HOST is the client-visible address returned to browsers/clients.'
         "TURN_HOST=$TurnHost"
         "TURN_SECRET=$TurnSecret"
     )
+    if (-not [string]::IsNullOrEmpty($TurnInternalHost)) {
+        $envLines += @(
+            ''
+            '# Address the API container uses to reach coturn (defaults to TURN_HOST)'
+            "TURN_INTERNAL_HOST=$TurnInternalHost"
+        )
+    }
+    if (-not [string]::IsNullOrEmpty($TurnExternalIp)) {
+        $envLines += @(
+            ''
+            '# coturn public/private NAT mapping (defaults to TURN_HOST)'
+            "TURN_EXTERNAL_IP=$TurnExternalIp"
+        )
+    }
 }
 
 $envContent = ($envLines -join [Environment]::NewLine) + [Environment]::NewLine
 [System.IO.File]::WriteAllText((Join-Path $CurrentDir '.env'), $envContent, [System.Text.UTF8Encoding]::new($false))
-Write-Success '✓ .env file created'
+Write-Success 'OK - .env file created'
 
 Write-Host ''
-Write-Success '╔══════════════════════════════════════════════════════════════╗'
-Write-Success '║                    Setup Complete!                           ║'
-Write-Success '╚══════════════════════════════════════════════════════════════╝'
+Write-Success '================================================================'
+Write-Success '                     Setup Complete!'
+Write-Success '================================================================'
 Write-Host ''
-Write-Host "Files created in $CurrentDir:" -ForegroundColor Blue
+Write-Host "Files created in ${CurrentDir}:" -ForegroundColor Blue
 Write-Host '  - docker-compose.yaml'
 Write-Host '  - .env'
 if ($UseCoturn) {

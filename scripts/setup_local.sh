@@ -47,11 +47,11 @@ if [[ -z "${ENABLE_COTURN:-}" ]]; then
 fi
 
 if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
-    # Pick a TURN_HOST that's reachable from BOTH the browser (running on the
-    # host) and the API container (running in docker). 127.0.0.1 is tempting
-    # but doesn't work for the api container — its own loopback isn't where
-    # coturn lives, so aiortc can't allocate a relay. The host's LAN IP works
-    # for both.
+    # Pick a TURN_HOST that browsers/clients can use to reach the TURN
+    # server. The API container uses the same address unless the optional
+    # TURN_INTERNAL_HOST is set. 127.0.0.1 is tempting but doesn't work for
+    # the api container — its own loopback isn't where coturn lives, so
+    # aiortc can't allocate a relay. The host's LAN IP works by default.
     detect_lan_ip() {
         local ip=""
         if command -v ipconfig >/dev/null 2>&1; then
@@ -75,9 +75,9 @@ if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
     DEFAULT_TURN_HOST="$(detect_lan_ip)"
     DEFAULT_TURN_HOST="${DEFAULT_TURN_HOST:-127.0.0.1}"
 
-    # Get the host browsers/peers will use to reach the TURN server
+    # Get the client-visible host browsers/peers will use to reach TURN
     if [[ -z "${TURN_HOST:-}" ]]; then
-        echo -e "${YELLOW}Enter the host browsers AND the API container will use to reach TURN${NC}"
+        echo -e "${YELLOW}Enter the client-visible host browsers will use to reach TURN${NC}"
         echo -e "${YELLOW}(press Enter for ${DEFAULT_TURN_HOST}):${NC}"
         read -p "> " TURN_HOST
     fi
@@ -86,6 +86,20 @@ if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
     # Validate that TURN_HOST is either an IP or a hostname (basic check)
     if ! [[ "$TURN_HOST" =~ ^[A-Za-z0-9.-]+$ ]]; then
         echo -e "${RED}Error: TURN host must be an IP address or hostname${NC}"
+        exit 1
+    fi
+
+    # Optional advanced env inputs for split-host installs (no prompts).
+    # TURN_INTERNAL_HOST: address the API container uses to reach coturn
+    # (defaults to TURN_HOST). TURN_EXTERNAL_IP: explicit coturn NAT mapping
+    # such as 10.0.0.133/172.28.0.8 (defaults to TURN_HOST). Same-LAN
+    # installs need no router forwarding.
+    if [[ -n "${TURN_INTERNAL_HOST:-}" ]] && ! [[ "$TURN_INTERNAL_HOST" =~ ^[A-Za-z0-9.-]+$ ]]; then
+        echo -e "${RED}Error: TURN_INTERNAL_HOST must be an IP address or hostname${NC}"
+        exit 1
+    fi
+    if [[ -n "${TURN_EXTERNAL_IP:-}" ]] && ! [[ "$TURN_EXTERNAL_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}(/([0-9]{1,3}\.){3}[0-9]{1,3})?$ ]]; then
+        echo -e "${RED}Error: TURN_EXTERNAL_IP must be an IPv4 address or a public-ip/private-ip pair${NC}"
         exit 1
     fi
 
@@ -115,6 +129,12 @@ echo -e "${GREEN}Configuration:${NC}"
 echo -e "  Coturn:        ${BLUE}${ENABLE_COTURN:-false}${NC}"
 if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
     echo -e "  TURN Host:     ${BLUE}$TURN_HOST${NC}"
+    if [[ -n "${TURN_INTERNAL_HOST:-}" ]]; then
+        echo -e "  TURN internal: ${BLUE}$TURN_INTERNAL_HOST${NC}"
+    fi
+    if [[ -n "${TURN_EXTERNAL_IP:-}" ]]; then
+        echo -e "  TURN ext. IP:  ${BLUE}$TURN_EXTERNAL_IP${NC}"
+    fi
     echo -e "  TURN Secret:   ${BLUE}********${NC}"
     echo -e "  Force relay:   ${BLUE}$FORCE_TURN_RELAY${NC}"
 fi
@@ -175,9 +195,24 @@ if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
     cat >> .env << ENV_EOF
 
 # TURN Server Configuration (time-limited credentials via TURN REST API)
+# TURN_HOST is the client-visible address returned to browsers/clients.
 TURN_HOST=$TURN_HOST
 TURN_SECRET=$TURN_SECRET
 ENV_EOF
+    if [[ -n "${TURN_INTERNAL_HOST:-}" ]]; then
+        cat >> .env << ENV_EOF
+
+# Address the API container uses to reach coturn (defaults to TURN_HOST)
+TURN_INTERNAL_HOST=$TURN_INTERNAL_HOST
+ENV_EOF
+    fi
+    if [[ -n "${TURN_EXTERNAL_IP:-}" ]]; then
+        cat >> .env << ENV_EOF
+
+# coturn public/private NAT mapping (defaults to TURN_HOST)
+TURN_EXTERNAL_IP=$TURN_EXTERNAL_IP
+ENV_EOF
+    fi
 fi
 echo -e "${GREEN}✓ .env file created${NC}"
 
