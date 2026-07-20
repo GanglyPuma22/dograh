@@ -5,6 +5,7 @@ They handle CORS, domain validation, and session management for embedded workflo
 """
 
 import secrets
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 from urllib.parse import urlsplit
@@ -30,8 +31,9 @@ from api.routes.turn_credentials import (
 
 router = APIRouter(prefix="/public/embed")
 
-EMBED_CORS_ALLOW_HEADERS = "Content-Type, Origin"
+EMBED_CORS_ALLOW_HEADERS = "Authorization, Content-Type, Origin"
 EMBED_CORS_MAX_AGE = "86400"
+EMBED_SESSION_TOKEN_PATTERN = re.compile(r"^emb_session_[A-Za-z0-9_-]{20,128}$")
 
 
 class InitEmbedRequest(BaseModel):
@@ -230,6 +232,11 @@ async def build_public_embed_preflight_response(
         session_token = path[len(turn_credentials_prefix) :].split("/", 1)[0]
         return await _turn_credentials_preflight_response(session_token, origin)
 
+    if path == f"{public_embed_prefix}/turn-credentials":
+        if requested_method.upper() != "POST":
+            return Response(status_code=405)
+        return _cors_response(origin, "POST, OPTIONS")
+
     return None
 
 
@@ -413,21 +420,19 @@ async def options_init(request: Request):
     return _cors_response(origin, "POST, OPTIONS")
 
 
-@router.get("/turn-credentials/{session_token}", response_model=TurnCredentialsResponse)
-async def get_public_turn_credentials(
+def _bearer_session_token(request: Request) -> str:
+    authorization = request.headers.get("authorization", "")
+    match = re.fullmatch(
+        r"(?i:Bearer) (emb_session_[A-Za-z0-9_-]{20,128})", authorization
+    )
+    if not match or not EMBED_SESSION_TOKEN_PATTERN.fullmatch(match.group(1)):
+        raise HTTPException(status_code=401, detail="Invalid media authorization")
+    return match.group(1)
+
+
+async def _get_public_turn_credentials(
     session_token: str, request: Request, response: Response
 ):
-    """Get TURN credentials for an embed session.
-
-    This endpoint allows embedded widgets to obtain TURN server credentials
-    for WebRTC connections without requiring authentication.
-
-    Args:
-        session_token: The session token from embed initialization
-
-    Returns:
-        TurnCredentialsResponse with username, password, ttl, and TURN URIs
-    """
     origin = get_request_origin(request)
 
     # Validate session token
@@ -462,7 +467,9 @@ async def get_public_turn_credentials(
         )
 
     try:
-        credentials = generate_turn_credentials(f"embed-run:{embed_session.workflow_run_id}")
+        credentials = generate_turn_credentials(
+            f"embed-run:{embed_session.workflow_run_id}"
+        )
         return TurnCredentialsResponse(**credentials)
     except Exception as e:
         logger.error(f"Failed to generate TURN credentials for embed session: {e}")
@@ -470,6 +477,28 @@ async def get_public_turn_credentials(
             status_code=500,
             detail="Failed to generate TURN credentials",
         )
+
+
+@router.post("/turn-credentials", response_model=TurnCredentialsResponse)
+async def post_public_turn_credentials(request: Request, response: Response):
+    """Issue TURN credentials with the embed session token in a bearer header."""
+    return await _get_public_turn_credentials(
+        _bearer_session_token(request), request, response
+    )
+
+
+@router.get("/turn-credentials/{session_token}", response_model=TurnCredentialsResponse)
+async def get_public_turn_credentials(
+    session_token: str, request: Request, response: Response
+):
+    """Legacy TURN route retained for existing embed clients."""
+    return await _get_public_turn_credentials(session_token, request, response)
+
+
+@router.options("/turn-credentials")
+async def options_header_turn_credentials(request: Request):
+    """Fallback OPTIONS handler for bearer-authenticated TURN credentials."""
+    return _cors_response(request.headers.get("origin", "*"), "POST, OPTIONS")
 
 
 @router.options("/turn-credentials/{session_token}")
