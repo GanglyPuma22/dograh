@@ -84,6 +84,15 @@ The application is still available at `http://localhost:3010`.
 To verify that media is actually traversing TURN (and not silently falling back to a direct path), set `FORCE_TURN_RELAY=true` in `.env` and restart the API. The browser will then only use relay ICE candidates — if TURN is misconfigured or unreachable, the call fails cleanly with `ICE failed` in the console instead of appearing to work. Set it back to `false` once you have verified connectivity.
 </Note>
 
+#### Advanced: split TURN routing
+
+`TURN_HOST` is the client-visible address: it is what browsers and other WebRTC clients receive in their TURN credential URIs. By default the API container uses the same address to reach coturn. Two optional `.env` keys cover installs where one address cannot serve both audiences:
+
+- `TURN_INTERNAL_HOST` — the address the API container uses to reach coturn (for example `host.docker.internal` when clients use a LAN IP the container cannot route to). Defaults to `TURN_HOST`.
+- `TURN_EXTERNAL_IP` — an explicit coturn NAT mapping in `public-ip/private-ip` form (for example `192.0.2.10/172.28.0.8`) so relay candidates advertise your LAN IP while coturn stays bound to its Docker address. Defaults to `TURN_HOST`.
+
+Preset them as environment variables when running the setup script, or add them to `.env` afterwards and recreate the `dograh-init`, `coturn`, and `api` services. Clients on the same LAN reach coturn directly, so no router port forwarding or public DNS is required.
+
 ## Option 2: Remote Server Deployment
 
 Watch the video tutorial below for a step-by-step walkthrough of deploying Dograh AI to a remote server.
