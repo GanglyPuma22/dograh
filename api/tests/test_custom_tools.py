@@ -8,6 +8,7 @@ This module tests:
 """
 
 import asyncio
+import hashlib
 from dataclasses import dataclass
 from typing import Any, Dict
 from unittest.mock import AsyncMock, Mock, patch
@@ -1405,8 +1406,10 @@ class TestCustomToolManagerUnit:
             assert len(results) == 1
 
     @pytest.mark.asyncio
-    async def test_http_handler_forwards_tool_call_and_workflow_run_identity(self):
-        """The handler forwards Pipecat and Dograh runtime identity unchanged."""
+    async def test_http_handler_forwards_bounded_tool_call_and_workflow_run_identity(
+        self,
+    ):
+        """The handler forwards a bounded identity instead of provider-owned data."""
         manager, tool = self._identity_manager_and_tool()
         handler = manager._create_http_tool_handler(tool, "windows_open_app")
         result_callback = AsyncMock()
@@ -1424,13 +1427,45 @@ class TestCustomToolManagerUnit:
             await handler(params)
 
         identity = mock_execute.await_args.kwargs["runtime_identity"]
-        assert identity.tool_call_id == "call_open_app_123"
+        assert identity.tool_call_id == (
+            "tcid:v1:" + hashlib.sha256(b"call_open_app_123").hexdigest()
+        )
+        assert "call_open_app_123" not in identity.as_header_value()
         assert identity.workflow_run_id == "42"
         assert identity.tool_uuid == "windows-tool-uuid"
         assert identity.agent_scope == "jeeves_windows"
         result_callback.assert_awaited_once_with(
             {"status": "success", "data": {"opened": True}}
         )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("length", [700, 1268])
+    async def test_http_handler_canonicalizes_long_provider_tool_call_id(
+        self,
+        length,
+    ):
+        """Provider IDs observed in production become one fixed-size identity."""
+        manager, tool = self._identity_manager_and_tool()
+        handler = manager._create_http_tool_handler(tool, "windows_open_app")
+        raw_id = "x" * length
+        params = Mock(
+            tool_call_id=raw_id,
+            arguments={"app_id": "app:v1:spotify"},
+            result_callback=AsyncMock(),
+        )
+
+        with patch(
+            "api.services.workflow.pipecat_engine_custom_tools.execute_http_tool",
+            new_callable=AsyncMock,
+            return_value={"status": "success"},
+        ) as mock_execute:
+            await handler(params)
+
+        identity = mock_execute.await_args.kwargs["runtime_identity"]
+        assert identity.tool_call_id == (
+            "tcid:v1:" + hashlib.sha256(raw_id.encode("utf-8")).hexdigest()
+        )
+        assert len(identity.tool_call_id) == 72
 
     @pytest.mark.asyncio
     async def test_http_handler_reuses_identity_for_same_logical_tool_call(self):

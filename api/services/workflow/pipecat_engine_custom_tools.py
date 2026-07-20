@@ -31,6 +31,7 @@ from api.services.telephony.transfer_event_protocol import TransferContext
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
 from api.services.workflow.tools.custom_tool import (
     HttpToolRuntimeIdentity,
+    canonicalize_http_tool_call_id,
     execute_http_tool,
     tool_to_function_schema,
 )
@@ -396,7 +397,7 @@ class CustomToolManager:
                         return
 
                     runtime_identity = HttpToolRuntimeIdentity(
-                        tool_call_id=tool_call_id,
+                        tool_call_id=canonicalize_http_tool_call_id(tool_call_id),
                         workflow_run_id=str(self._engine._workflow_run_id),
                         tool_uuid=str(tool.tool_uuid),
                         agent_scope=agent_scope,
