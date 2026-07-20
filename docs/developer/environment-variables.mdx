@@ -91,6 +91,7 @@ Dograh uses **MinIO by default**, which is bundled with the self-hosted deployme
 |---|---|---|
 | `TURN_HOST` | `localhost` | Client-visible TURN server hostname for WebRTC NAT traversal. Returned to browsers/clients in TURN credential URIs |
 | `TURN_INTERNAL_HOST` | `TURN_HOST` | Optional TURN hostname used only by the server-side aiortc peer. Set it when the API container reaches coturn on a different route than clients do (e.g. `host.docker.internal` while clients use a LAN IP) |
+| `TURN_EXTERNAL_IP` | `TURN_HOST` (local setup) | Optional coturn `public-ip/private-ip` NAT mapping for split-host local deployments |
 | `TURN_PORT` | `3478` | TURN server port |
 | `TURN_TLS_PORT` | `5349` | TURN server TLS port |
 | `TURN_SECRET` | `null` | **Required for WebRTC.** Shared secret for TURN credential generation |

@@ -30,7 +30,13 @@ def reload_turn_modules(monkeypatch):
     import api.routes.webrtc_signaling
 
     def _reload(**env):
-        for key in ("TURN_HOST", "TURN_INTERNAL_HOST", "TURN_SECRET"):
+        for key in (
+            "TURN_HOST",
+            "TURN_INTERNAL_HOST",
+            "TURN_SECRET",
+            "TURN_USERNAME",
+            "TURN_PASSWORD",
+        ):
             monkeypatch.delenv(key, raising=False)
         for key, value in env.items():
             monkeypatch.setenv(key, value)
@@ -148,3 +154,19 @@ def test_server_side_ice_servers_keep_turn_host_without_internal_host(
     assert turn_servers, "expected a TURN entry in the server-side ICE config"
     for server in turn_servers:
         assert all(CLIENT_HOST in url for url in server.urls)
+
+
+def test_server_side_static_credentials_use_internal_host(reload_turn_modules):
+    _, _, webrtc_signaling = reload_turn_modules(
+        TURN_HOST=CLIENT_HOST,
+        TURN_INTERNAL_HOST=INTERNAL_HOST,
+        TURN_USERNAME="legacy-user",
+        TURN_PASSWORD="legacy-password",
+    )
+
+    turn_servers = _turn_servers(webrtc_signaling.get_ice_servers())
+
+    assert turn_servers, "expected a legacy static TURN entry"
+    for server in turn_servers:
+        assert all(INTERNAL_HOST in url for url in server.urls)
+        assert not any(CLIENT_HOST in url for url in server.urls)

@@ -232,8 +232,8 @@ def get_ice_servers(user_id: Optional[str] = None) -> List[RTCIceServer]:
         servers.append(
             RTCIceServer(
                 urls=[
-                    f"turn:{TURN_HOST}:{TURN_PORT}",
-                    f"turn:{TURN_HOST}:{TURN_PORT}?transport=tcp",
+                    f"turn:{TURN_INTERNAL_HOST}:{TURN_PORT}",
+                    f"turn:{TURN_INTERNAL_HOST}:{TURN_PORT}?transport=tcp",
                 ],
                 username=turn_username,
                 credential=turn_password,
