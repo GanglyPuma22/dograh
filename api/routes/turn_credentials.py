@@ -54,12 +54,17 @@ class TurnConfigResponse(BaseModel):
     host: Optional[str] = None
 
 
-def generate_turn_credentials(user_id: str, ttl: int = TURN_CREDENTIAL_TTL) -> dict:
+def generate_turn_credentials(
+    user_id: str, ttl: int = TURN_CREDENTIAL_TTL, *, host: Optional[str] = None
+) -> dict:
     """Generate time-limited TURN credentials using HMAC-SHA1.
 
     Args:
         user_id: Unique identifier for the user (for auditing)
         ttl: Time-to-live in seconds for the credentials
+        host: Optional TURN host override for the returned URIs. Defaults to
+            the client-visible TURN_HOST; the server-side aiortc peer passes
+            TURN_INTERNAL_HOST when its route to coturn differs.
 
     Returns:
         Dictionary with username, password, ttl, and TURN URIs
@@ -69,6 +74,8 @@ def generate_turn_credentials(user_id: str, ttl: int = TURN_CREDENTIAL_TTL) -> d
     """
     if not TURN_SECRET:
         raise ValueError("TURN_SECRET is not configured")
+
+    turn_host = host or TURN_HOST
 
     # Calculate expiration timestamp
     expiration = int(time.time()) + ttl
@@ -101,15 +108,15 @@ def generate_turn_credentials(user_id: str, ttl: int = TURN_CREDENTIAL_TTL) -> d
     if ENVIRONMENT == Environment.LOCAL.value:
         uris.extend(
             [
-                f"turn:{TURN_HOST}:{TURN_PORT}?transport=tcp",  # TCP for macOS Docker
-                f"turn:{TURN_HOST}:{TURN_PORT}",  # UDP fallback
+                f"turn:{turn_host}:{TURN_PORT}?transport=tcp",  # TCP for macOS Docker
+                f"turn:{turn_host}:{TURN_PORT}",  # UDP fallback
             ]
         )
     else:
         uris.extend(
             [
-                f"turn:{TURN_HOST}:{TURN_PORT}",  # UDP preferred for other environments
-                f"turn:{TURN_HOST}:{TURN_PORT}?transport=tcp",  # TCP fallback
+                f"turn:{turn_host}:{TURN_PORT}",  # UDP preferred for other environments
+                f"turn:{turn_host}:{TURN_PORT}?transport=tcp",  # TCP fallback
             ]
         )
 
@@ -117,8 +124,8 @@ def generate_turn_credentials(user_id: str, ttl: int = TURN_CREDENTIAL_TTL) -> d
     if TURN_TLS_PORT:
         uris.extend(
             [
-                f"turns:{TURN_HOST}:{TURN_TLS_PORT}",  # TURN over TLS
-                f"turns:{TURN_HOST}:{TURN_TLS_PORT}?transport=tcp",  # TURN over TLS+TCP
+                f"turns:{turn_host}:{TURN_TLS_PORT}",  # TURN over TLS
+                f"turns:{turn_host}:{TURN_TLS_PORT}?transport=tcp",  # TURN over TLS+TCP
             ]
         )
 
