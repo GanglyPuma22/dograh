@@ -1,5 +1,6 @@
 """Custom tool execution for user-defined HTTP API tools."""
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -22,6 +23,15 @@ TYPE_MAP = {
 }
 
 RUNTIME_IDENTITY_HEADER = "X-Dograh-Runtime-Identity"
+RUNTIME_TOOL_CALL_ID_PREFIX = "tcid:v1:"
+
+
+def canonicalize_http_tool_call_id(provider_tool_call_id: str) -> str:
+    """Return a stable bounded identity for one provider-owned tool call."""
+    if not isinstance(provider_tool_call_id, str) or not provider_tool_call_id.strip():
+        raise ValueError("Stable tool call identity is required for this HTTP tool")
+    digest = hashlib.sha256(provider_tool_call_id.encode("utf-8")).hexdigest()
+    return f"{RUNTIME_TOOL_CALL_ID_PREFIX}{digest}"
 
 
 @dataclass(frozen=True)
