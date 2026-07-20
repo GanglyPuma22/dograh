@@ -10,8 +10,8 @@ from api.routes import public_embed
 def test_sensitive_bearer_route_segments_are_redacted_from_log_messages():
     sentinel = "emb_session_sentinel_secret_value"
     message = (
-        f'GET /api/v1/public/embed/turn-credentials/{sentinel}?transport=tcp 403 '
-        f'ws://host/api/v1/ws/public/signaling/{sentinel}'
+        f"GET /api/v1/public/embed/turn-credentials/{sentinel}?transport=tcp 403 "
+        f"ws://host/api/v1/ws/public/signaling/{sentinel}"
     )
 
     redacted = sanitize_sensitive_paths(message)
@@ -32,6 +32,16 @@ def test_embed_session_and_turn_sources_never_log_or_derive_from_the_bearer_toke
 
     assert 'logger.info(f"Created embed session {session_token}")' not in create_source
     assert "session_token[:" not in route_source
+
+
+def test_credential_free_media_routes_have_static_request_targets():
+    signaling_source = inspect.getsource(
+        __import__("api.routes.webrtc_signaling", fromlist=["router"])
+    )
+    embed_source = inspect.getsource(public_embed)
+
+    assert '@router.websocket("/public/signaling")' in signaling_source
+    assert '@router.post("/turn-credentials"' in embed_source
 
 
 def test_remote_nginx_disables_request_uri_access_logs_on_http_and_https():

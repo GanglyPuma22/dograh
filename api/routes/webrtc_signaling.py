@@ -17,6 +17,7 @@ TURN Authentication:
 import asyncio
 import ipaddress
 import os
+import re
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Dict, List, Optional
@@ -48,6 +49,9 @@ from api.services.pipecat.ws_sender_registry import (
 from api.services.quota_service import check_dograh_quota
 
 router = APIRouter(prefix="/ws")
+
+JEEVES_MEDIA_SUBPROTOCOL = "jeeves-media-v1"
+EMBED_SESSION_TOKEN_PATTERN = re.compile(r"^emb_session_[A-Za-z0-9_-]{20,128}$")
 
 
 class NonRelayFilterPolicy(Enum):
@@ -234,7 +238,7 @@ def get_ice_servers(user_id: Optional[str] = None) -> List[RTCIceServer]:
             )
         )
         logger.warning(
-            f"TURN server configured with static credentials (consider using TURN_SECRET for time-limited auth)"
+            "TURN server configured with static credentials (consider using TURN_SECRET for time-limited auth)"
         )
 
     return servers
@@ -253,9 +257,13 @@ class SignalingManager:
         workflow_id: int,
         workflow_run_id: int,
         user: UserModel,
+        accepted_subprotocol: str | None = None,
     ):
         """Handle WebSocket connection for signaling."""
-        await websocket.accept()
+        if accepted_subprotocol is None:
+            await websocket.accept()
+        else:
+            await websocket.accept(subprotocol=accepted_subprotocol)
         connection_id = f"{workflow_id}:{workflow_run_id}:{user.id}"
         self._connections[connection_id] = websocket
 
@@ -515,20 +523,22 @@ async def signaling_websocket(
     )
 
 
-@router.websocket("/public/signaling/{session_token}")
-async def public_signaling_websocket(
+def _session_token_from_media_protocol(websocket: WebSocket) -> str | None:
+    offered = websocket.headers.get("sec-websocket-protocol", "")
+    protocols = [value.strip() for value in offered.split(",")]
+    if len(protocols) != 2 or protocols[0] != JEEVES_MEDIA_SUBPROTOCOL:
+        return None
+    session_token = protocols[1]
+    if not EMBED_SESSION_TOKEN_PATTERN.fullmatch(session_token):
+        return None
+    return session_token
+
+
+async def _handle_public_signaling_websocket(
     websocket: WebSocket,
     session_token: str,
+    accepted_subprotocol: str | None = None,
 ):
-    """Public WebSocket endpoint for WebRTC signaling with embed tokens.
-
-    This endpoint:
-    1. Validates the session token from embed initialization
-    2. Retrieves the associated workflow run
-    3. Handles WebRTC signaling without requiring authentication
-    """
-
-    # Validate session token
     embed_session = await db_client.get_embed_session_by_token(session_token)
     if not embed_session:
         await websocket.close(code=1008, reason="Invalid session token")
@@ -568,5 +578,32 @@ async def public_signaling_websocket(
 
     # Handle the WebSocket connection using the existing signaling manager
     await signaling_manager.handle_websocket(
-        websocket, embed_token.workflow_id, embed_session.workflow_run_id, user
+        websocket,
+        embed_token.workflow_id,
+        embed_session.workflow_run_id,
+        user,
+        accepted_subprotocol=accepted_subprotocol,
     )
+
+
+@router.websocket("/public/signaling")
+async def public_signaling_websocket_from_protocol(websocket: WebSocket):
+    """Authenticate Jeeves media without placing its session token in the URL."""
+    session_token = _session_token_from_media_protocol(websocket)
+    if session_token is None:
+        await websocket.close(code=1008, reason="Invalid media protocol")
+        return
+    await _handle_public_signaling_websocket(
+        websocket,
+        session_token,
+        accepted_subprotocol=JEEVES_MEDIA_SUBPROTOCOL,
+    )
+
+
+@router.websocket("/public/signaling/{session_token}")
+async def public_signaling_websocket(
+    websocket: WebSocket,
+    session_token: str,
+):
+    """Legacy public signaling route retained for existing embed clients."""
+    await _handle_public_signaling_websocket(websocket, session_token)
