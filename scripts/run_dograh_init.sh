@@ -29,7 +29,9 @@ if [[ "${ENVIRONMENT:-local}" == "production" ]]; then
 fi
 
 if [[ -n "${TURN_SECRET:-}" && -n "${TURN_HOST:-}" ]]; then
-    export TURN_EXTERNAL_IP="$TURN_HOST"
+    # An explicit TURN_EXTERNAL_IP (e.g. "lan-ip/container-ip" NAT mapping)
+    # wins; otherwise keep advertising the client-visible TURN_HOST.
+    export TURN_EXTERNAL_IP="${TURN_EXTERNAL_IP:-$TURN_HOST}"
     dograh_render_remote_turn_conf "$WORKSPACE_DIR" "$COTURN_OUTPUT_DIR/turnserver.conf"
     dograh_success "✓ dograh-init rendered local TURN config"
     exit 0

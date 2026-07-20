@@ -75,6 +75,8 @@ services:
       BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8000}"
       MINIO_PUBLIC_ENDPOINT: "${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}"
       TURN_HOST: "${TURN_HOST:-}"
+      TURN_INTERNAL_HOST: "${TURN_INTERNAL_HOST:-}"
+      TURN_EXTERNAL_IP: "${TURN_EXTERNAL_IP:-}"
       TURN_SECRET: "${TURN_SECRET:-}"
       FASTAPI_WORKERS: "${FASTAPI_WORKERS:-1}"
     volumes:
@@ -172,8 +174,12 @@ services:
       # LANGFUSE_HOST: ""
 
       # TURN server configuration (for WebRTC NAT traversal in remote server)
-      # Uses time-limited credentials via TURN REST API (HMAC-SHA1)
+      # Uses time-limited credentials via TURN REST API (HMAC-SHA1).
+      # TURN_HOST is the client-visible relay address; TURN_INTERNAL_HOST is
+      # the optional address this container uses to reach coturn (defaults to
+      # TURN_HOST when unset).
       TURN_HOST: "${TURN_HOST:-}"
+      TURN_INTERNAL_HOST: "${TURN_INTERNAL_HOST:-}"
       TURN_SECRET: "${TURN_SECRET:-}"
       FORCE_TURN_RELAY: "${FORCE_TURN_RELAY:-false}"
 
