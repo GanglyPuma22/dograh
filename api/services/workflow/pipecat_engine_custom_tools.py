@@ -29,6 +29,7 @@ from api.services.telephony.call_transfer_manager import get_call_transfer_manag
 from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.transfer_event_protocol import TransferContext
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
+from api.services.workflow.tools import custom_tool as custom_tool_module
 from api.services.workflow.tools.custom_tool import (
     HttpToolRuntimeIdentity,
     canonicalize_http_tool_call_id,
@@ -93,6 +94,16 @@ class CustomToolManager:
 
     def __init__(self, engine: "PipecatEngine") -> None:
         self._engine = engine
+        self._late_terminal_observers: dict[str, asyncio.Task] = {}
+
+    async def cancel_late_terminal_observers(self) -> None:
+        """Revoke every live callback registration without reviving a disposed call."""
+        tasks = list(self._late_terminal_observers.values())
+        self._late_terminal_observers.clear()
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _play_config_message(
         self, config: dict, *, append_to_context: bool = False
@@ -359,6 +370,67 @@ class CustomToolManager:
         ) -> None:
             terminal_sent = False
 
+            async def observe_late_terminal(
+                observer_key: str,
+                capability: Any,
+                identity: HttpToolRuntimeIdentity,
+                registration_id: str,
+                organization_id: Optional[int],
+            ) -> None:
+                try:
+                    async with asyncio.timeout(capability.max_wait_ms / 1000):
+                        while not self._engine.is_call_disposed():
+                            outcome = await custom_tool_module.poll_late_terminal(
+                                tool,
+                                capability,
+                                identity,
+                                registration_id,
+                                organization_id,
+                            )
+                            if outcome["status"] == "terminal":
+                                async def on_context_updated() -> None:
+                                    await custom_tool_module.ack_late_terminal(
+                                        tool,
+                                        capability,
+                                        identity,
+                                        registration_id,
+                                        organization_id,
+                                    )
+
+                                nonlocal terminal_sent
+                                if terminal_sent or self._engine.is_call_disposed():
+                                    return
+                                terminal_sent = True
+                                await function_call_params.result_callback(
+                                    outcome["terminal"],
+                                    properties=FunctionCallResultProperties(
+                                        on_context_updated=on_context_updated
+                                    ),
+                                )
+                                return
+                            if outcome["status"] == "error":
+                                await send_terminal_once(
+                                    {"status": "error", "error": outcome["error"]}
+                                )
+                                return
+                            await asyncio.sleep(capability.poll_wait_ms / 1000)
+                except asyncio.TimeoutError:
+                    await send_terminal_once(
+                        {"status": "error", "error": "Late-terminal observation expired"}
+                    )
+                except asyncio.CancelledError:
+                    await custom_tool_module.revoke_late_terminal(
+                        tool,
+                        capability,
+                        identity,
+                        registration_id,
+                        organization_id,
+                    )
+                    raise
+                finally:
+                    if self._late_terminal_observers.get(observer_key) is asyncio.current_task():
+                        self._late_terminal_observers.pop(observer_key, None)
+
             async def send_terminal_once(result: Any) -> None:
                 nonlocal terminal_sent
                 if terminal_sent:
@@ -493,6 +565,35 @@ class CustomToolManager:
                             f"Request timed out after {http_timeout_seconds} seconds"
                         ),
                     }
+
+                if result.get("status") == "late_terminal_pending":
+                    capability = custom_tool_module._late_terminal_capability(config)
+                    registration_id = result.get("registration_id")
+                    if (
+                        capability is None
+                        or runtime_identity is None
+                        or not isinstance(registration_id, str)
+                        or registration_id
+                        != custom_tool_module.late_terminal_registration_id(
+                            runtime_identity
+                        )
+                    ):
+                        await send_terminal_once(
+                            {"status": "error", "error": "Invalid late-terminal registration"}
+                        )
+                        return
+                    observer_key = f"{runtime_identity.tool_call_id}:{registration_id}"
+                    if observer_key not in self._late_terminal_observers:
+                        self._late_terminal_observers[observer_key] = asyncio.create_task(
+                            observe_late_terminal(
+                                observer_key,
+                                capability,
+                                runtime_identity,
+                                registration_id,
+                                await self.get_organization_id(),
+                            )
+                        )
+                    return
 
                 await send_terminal_once(result)
 
