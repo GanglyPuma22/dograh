@@ -1618,18 +1618,19 @@ class TestCustomToolManagerUnit:
         await manager.cancel_late_terminal_observers()
 
     @pytest.mark.asyncio
-    async def test_same_registration_replay_rebinds_the_live_callback(self):
-        """A replayed live call owns the eventual terminal callback."""
+    async def test_same_registration_replay_keeps_the_original_callback(self):
+        """An active duplicate cannot replace the durable callback owner."""
         manager, tool = self._identity_manager_and_tool()
         tool.definition["config"]["late_terminal"] = self._late_terminal_capability()
         handler = manager._create_http_tool_handler(tool, "windows_open_app")
-        first_callback = AsyncMock()
-        replay_delivered = asyncio.Event()
+        first_delivered = asyncio.Event()
 
-        async def record_replay(*_args, **_kwargs):
-            replay_delivered.set()
+        async def record_first(*_args, **kwargs):
+            await kwargs["properties"].on_context_updated()
+            first_delivered.set()
 
-        replay_callback = AsyncMock(side_effect=record_replay)
+        first_callback = AsyncMock(side_effect=record_first)
+        replay_callback = AsyncMock()
         params = {
             "tool_call_id": "call_same_registration_123",
             "arguments": {"app_id": "app:v1:spotify"},
@@ -1668,22 +1669,30 @@ class TestCustomToolManagerUnit:
                 "poll_late_terminal",
                 new_callable=AsyncMock,
                 side_effect=delayed_terminal,
-            ),
+            ) as poll,
+            patch.object(
+                custom_tool_module,
+                "ack_late_terminal",
+                new_callable=AsyncMock,
+            ) as ack,
         ):
             await handler(first_params)
             await asyncio.wait_for(poll_started.wait(), timeout=1)
             await handler(replay_params)
             release_terminal.set()
-            await asyncio.wait_for(replay_delivered.wait(), timeout=1)
+            await asyncio.wait_for(first_delivered.wait(), timeout=1)
 
-        first_callback.assert_not_awaited()
-        replay_callback.assert_awaited_once()
-        assert replay_callback.await_args.args[0] == terminal
+        first_callback.assert_awaited_once()
+        assert first_callback.await_args.args[0] == terminal
+        replay_callback.assert_not_awaited()
+        poll.assert_awaited_once_with(tool, ANY, identity, registration_id, 7)
+        ack.assert_awaited_once_with(tool, ANY, identity, registration_id, 7)
+        assert len(manager._late_terminal_completed) == 1
         assert manager._late_terminal_observers == {}
 
     @pytest.mark.asyncio
-    async def test_replay_supersedes_delivery_already_inside_the_old_callback(self):
-        """A replay cancels an entered stale delivery and completes on the live callback."""
+    async def test_replay_does_not_supersede_an_entered_original_callback(self):
+        """An in-flight duplicate lets the one original callback finish."""
         manager, tool = self._identity_manager_and_tool()
         tool.definition["config"]["late_terminal"] = self._late_terminal_capability()
         handler = manager._create_http_tool_handler(tool, "windows_open_app")
@@ -1696,25 +1705,23 @@ class TestCustomToolManagerUnit:
         )
         registration_id = custom_tool_module.late_terminal_registration_id(identity)
         terminal = {"status": "succeeded", "execution_id": "exec_inflight_replay"}
-        old_entered = asyncio.Event()
-        old_cancelled = asyncio.Event()
-        release_old = asyncio.Event()
-        replay_completed = asyncio.Event()
+        original_entered = asyncio.Event()
+        original_cancelled = asyncio.Event()
+        release_original = asyncio.Event()
+        original_completed = asyncio.Event()
 
-        async def old_result(*_args, **_kwargs):
-            old_entered.set()
+        async def original_result(*_args, **kwargs):
+            original_entered.set()
             try:
-                await release_old.wait()
+                await release_original.wait()
             except asyncio.CancelledError:
-                old_cancelled.set()
+                original_cancelled.set()
                 raise
-
-        async def replay_result(*_args, **kwargs):
             await kwargs["properties"].on_context_updated()
-            replay_completed.set()
+            original_completed.set()
 
-        first_callback = AsyncMock(side_effect=old_result)
-        replay_callback = AsyncMock(side_effect=replay_result)
+        first_callback = AsyncMock(side_effect=original_result)
+        replay_callback = AsyncMock()
         first_params = Mock(
             tool_call_id=tool_call_id,
             arguments={"app_id": "app:v1:spotify"},
@@ -1754,17 +1761,20 @@ class TestCustomToolManagerUnit:
         ):
             try:
                 await handler(first_params)
-                await asyncio.wait_for(old_entered.wait(), timeout=1)
+                await asyncio.wait_for(original_entered.wait(), timeout=1)
                 await handler(replay_params)
-                await asyncio.wait_for(old_cancelled.wait(), timeout=1)
-                await asyncio.wait_for(replay_completed.wait(), timeout=1)
+                assert not original_cancelled.is_set()
+                replay_callback.assert_not_awaited()
+                release_original.set()
+                await asyncio.wait_for(original_completed.wait(), timeout=1)
             finally:
-                release_old.set()
+                release_original.set()
                 await manager.cancel_late_terminal_observers()
 
         first_callback.assert_awaited_once()
-        replay_callback.assert_awaited_once()
-        assert replay_callback.await_args.args[0] == terminal
+        assert first_callback.await_args.args[0] == terminal
+        replay_callback.assert_not_awaited()
+        assert not original_cancelled.is_set()
         poll.assert_awaited_once_with(tool, ANY, identity, registration_id, 7)
         ack.assert_awaited_once_with(tool, ANY, identity, registration_id, 7)
 
@@ -1842,6 +1852,7 @@ class TestCustomToolManagerUnit:
         replay_callback.assert_not_awaited()
         poll.assert_awaited_once_with(tool, ANY, identity, registration_id, 7)
         ack.assert_awaited_once_with(tool, ANY, identity, registration_id, 7)
+        assert len(manager._late_terminal_completed) == 1
 
     @pytest.mark.asyncio
     async def test_concurrent_same_registration_reserves_one_observer_atomically(self):
@@ -2831,8 +2842,8 @@ class TestCustomToolManagerUnit:
         assert manager._late_terminal_observers == {}
 
     @pytest.mark.asyncio
-    async def test_user_interruption_revokes_the_detached_observer(self):
-        """The pipeline interruption itself closes an already-detached observer."""
+    async def test_user_interruption_revokes_and_replay_cannot_revive_the_observer(self):
+        """An interrupted registration remains an ineligible duplicate tombstone."""
         manager, tool = self._identity_manager_and_tool()
         tool.definition["config"]["late_terminal"] = self._late_terminal_capability()
         handler = manager._create_http_tool_handler(tool, "windows_open_app")
@@ -2842,6 +2853,12 @@ class TestCustomToolManagerUnit:
             tool_call_id=tool_call_id,
             arguments={"app_id": "app:v1:spotify"},
             result_callback=callback,
+        )
+        replay_callback = AsyncMock()
+        replay_params = Mock(
+            tool_call_id=tool_call_id,
+            arguments={"app_id": "app:v1:spotify"},
+            result_callback=replay_callback,
         )
         identity = custom_tool_module.HttpToolRuntimeIdentity(
             tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(tool_call_id),
@@ -2870,7 +2887,7 @@ class TestCustomToolManagerUnit:
                 "poll_late_terminal",
                 new_callable=AsyncMock,
                 side_effect=pending_poll,
-            ),
+            ) as poll,
             patch.object(
                 custom_tool_module,
                 "revoke_late_terminal",
@@ -2890,10 +2907,20 @@ class TestCustomToolManagerUnit:
                 revoke.assert_awaited_once_with(
                     tool, ANY, identity, registration_id, 7
                 )
+                await handler(replay_params)
+                await asyncio.sleep(0)
+                assert manager._late_terminal_observers == {}
+                assert len(manager._late_terminal_completed) == 1
+                assert poll.await_count == 1
+                revoke.assert_awaited_once_with(
+                    tool, ANY, identity, registration_id, 7
+                )
             finally:
                 await manager.cancel_late_terminal_observers()
 
         callback.assert_not_awaited()
+        replay_callback.assert_not_awaited()
+        assert poll.await_count == 1
         revoke.assert_awaited_once_with(tool, ANY, identity, registration_id, 7)
         assert manager._late_terminal_observers == {}
 
