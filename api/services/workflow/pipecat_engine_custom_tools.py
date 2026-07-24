@@ -388,7 +388,13 @@ class CustomToolManager:
                                 organization_id,
                             )
                             if outcome["status"] == "terminal":
+                                acknowledged = False
+
                                 async def on_context_updated() -> None:
+                                    nonlocal acknowledged
+                                    if acknowledged:
+                                        return
+                                    acknowledged = True
                                     await custom_tool_module.ack_late_terminal(
                                         tool,
                                         capability,
@@ -409,12 +415,18 @@ class CustomToolManager:
                                 )
                                 return
                             if outcome["status"] == "error":
+                                await custom_tool_module.revoke_late_terminal(
+                                    tool, capability, identity, registration_id, organization_id
+                                )
                                 await send_terminal_once(
                                     {"status": "error", "error": outcome["error"]}
                                 )
                                 return
                             await asyncio.sleep(capability.poll_wait_ms / 1000)
                 except asyncio.TimeoutError:
+                    await custom_tool_module.revoke_late_terminal(
+                        tool, capability, identity, registration_id, organization_id
+                    )
                     await send_terminal_once(
                         {"status": "error", "error": "Late-terminal observation expired"}
                     )
@@ -559,12 +571,18 @@ class CustomToolManager:
                 else:
                     executor_task.cancel()
                     executor_task.add_done_callback(consume_late_result)
-                    result = {
-                        "status": "error",
-                        "error": (
-                            f"Request timed out after {http_timeout_seconds} seconds"
-                        ),
-                    }
+                    capability = custom_tool_module._late_terminal_capability(config)
+                    result = (
+                        {
+                            "status": "late_terminal_pending",
+                            "registration_id": custom_tool_module.late_terminal_registration_id(runtime_identity),
+                        }
+                        if capability is not None and runtime_identity is not None
+                        else {
+                            "status": "error",
+                            "error": f"Request timed out after {http_timeout_seconds} seconds",
+                        }
+                    )
 
                 if result.get("status") == "late_terminal_pending":
                     capability = custom_tool_module._late_terminal_capability(config)
