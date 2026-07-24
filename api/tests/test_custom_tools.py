@@ -1759,7 +1759,12 @@ class TestCustomToolManagerUnit:
         manager, tool = self._identity_manager_and_tool()
         tool.definition["config"]["late_terminal"] = self._late_terminal_capability()
         handler = manager._create_http_tool_handler(tool, "windows_open_app")
-        callback = AsyncMock()
+        delivered = asyncio.Event()
+
+        async def record_result(*_args, **_kwargs):
+            delivered.set()
+
+        callback = AsyncMock(side_effect=record_result)
         params = Mock(
             tool_call_id="call_terminal_matrix_123",
             arguments={"app_id": "app:v1:spotify"},
