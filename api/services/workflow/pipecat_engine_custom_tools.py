@@ -11,7 +11,8 @@ import hashlib
 import re
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional
 
 from loguru import logger
 from pipecat.adapters.schemas.function_schema import FunctionSchema
@@ -40,6 +41,15 @@ from api.services.workflow.tools.custom_tool import (
 HTTP_TOOL_TIMEOUT_MARGIN_RATIO = 0.1
 HTTP_TOOL_TIMEOUT_MARGIN_MIN_SECONDS = 1.0
 HTTP_TOOL_TIMEOUT_MARGIN_MAX_SECONDS = 5.0
+
+
+@dataclass
+class _LateTerminalObserver:
+    task: asyncio.Task[None] | None
+    deliver: Callable[
+        [Any, HttpToolRuntimeIdentity, str, Optional[int], Any],
+        Awaitable[None],
+    ]
 
 
 def _pipecat_http_tool_timeout(http_timeout_seconds: float) -> float:
@@ -94,11 +104,15 @@ class CustomToolManager:
 
     def __init__(self, engine: "PipecatEngine") -> None:
         self._engine = engine
-        self._late_terminal_observers: dict[str, asyncio.Task] = {}
+        self._late_terminal_observers: dict[str, _LateTerminalObserver] = {}
 
     async def cancel_late_terminal_observers(self) -> None:
         """Revoke every live callback registration without reviving a disposed call."""
-        tasks = list(self._late_terminal_observers.values())
+        tasks = [
+            observer.task
+            for observer in self._late_terminal_observers.values()
+            if observer.task is not None
+        ]
         self._late_terminal_observers.clear()
         for task in tasks:
             task.cancel()
@@ -413,6 +427,7 @@ class CustomToolManager:
 
             async def observe_late_terminal(
                 observer_key: str,
+                observer: _LateTerminalObserver,
                 capability: Any,
                 identity: HttpToolRuntimeIdentity,
                 registration_id: str,
@@ -429,7 +444,7 @@ class CustomToolManager:
                                 organization_id,
                             )
                             if outcome["status"] == "terminal":
-                                await deliver_late_terminal(
+                                await observer.deliver(
                                     capability,
                                     identity,
                                     registration_id,
@@ -464,10 +479,7 @@ class CustomToolManager:
                     )
                     raise
                 finally:
-                    if (
-                        self._late_terminal_observers.get(observer_key)
-                        is asyncio.current_task()
-                    ):
+                    if self._late_terminal_observers.get(observer_key) is observer:
                         self._late_terminal_observers.pop(observer_key, None)
 
             async def send_terminal_once(result: Any) -> None:
@@ -665,18 +677,31 @@ class CustomToolManager:
                         )
                         return
                     observer_key = f"{runtime_identity.tool_call_id}:{registration_id}"
-                    if observer_key not in self._late_terminal_observers:
-                        self._late_terminal_observers[observer_key] = (
-                            asyncio.create_task(
-                                observe_late_terminal(
-                                    observer_key,
-                                    capability,
-                                    runtime_identity,
-                                    registration_id,
-                                    await self.get_organization_id(),
-                                )
+                    organization_id = await self.get_organization_id()
+                    observer = self._late_terminal_observers.get(observer_key)
+                    if observer is not None:
+                        observer.deliver = deliver_late_terminal
+                        return
+
+                    observer = _LateTerminalObserver(
+                        task=None,
+                        deliver=deliver_late_terminal,
+                    )
+                    self._late_terminal_observers[observer_key] = observer
+                    try:
+                        observer.task = asyncio.create_task(
+                            observe_late_terminal(
+                                observer_key,
+                                observer,
+                                capability,
+                                runtime_identity,
+                                registration_id,
+                                organization_id,
                             )
                         )
+                    except Exception:
+                        self._late_terminal_observers.pop(observer_key, None)
+                        raise
                     return
 
                 await send_terminal_once(result)
