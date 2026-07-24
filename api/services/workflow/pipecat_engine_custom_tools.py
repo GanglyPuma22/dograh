@@ -427,9 +427,6 @@ class CustomToolManager:
                     await custom_tool_module.revoke_late_terminal(
                         tool, capability, identity, registration_id, organization_id
                     )
-                    await send_terminal_once(
-                        {"status": "error", "error": "Late-terminal observation expired"}
-                    )
                 except asyncio.CancelledError:
                     await custom_tool_module.revoke_late_terminal(
                         tool,
