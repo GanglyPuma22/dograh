@@ -148,6 +148,24 @@ class CustomToolManager:
         except (asyncio.CancelledError, Exception):
             pass
 
+    @staticmethod
+    def _late_terminal_observer_key(
+        identity: HttpToolRuntimeIdentity,
+        registration_id: str,
+    ) -> str:
+        return f"{identity.tool_call_id}:{registration_id}"
+
+    def _has_late_terminal_lifecycle(
+        self,
+        identity: HttpToolRuntimeIdentity,
+        registration_id: str,
+    ) -> bool:
+        observer_key = self._late_terminal_observer_key(identity, registration_id)
+        return (
+            observer_key in self._late_terminal_observers
+            or observer_key in self._late_terminal_completed
+        )
+
     def _observer_is_eligible(
         self,
         observer: _LateTerminalObserver,
@@ -687,7 +705,10 @@ class CustomToolManager:
                 registration_id: str,
                 organization_id: Optional[int],
             ) -> tuple[_LateTerminalObserver, bool]:
-                observer_key = f"{identity.tool_call_id}:{registration_id}"
+                observer_key = self._late_terminal_observer_key(
+                    identity,
+                    registration_id,
+                )
                 observer = self._late_terminal_observers.get(observer_key)
                 if observer is None:
                     observer = self._late_terminal_completed.get(observer_key)
@@ -905,6 +926,17 @@ class CustomToolManager:
 
                 if executor_task in completed:
                     result = await executor_task
+                    if runtime_identity is not None:
+                        registration_id = (
+                            custom_tool_module.late_terminal_registration_id(
+                                runtime_identity
+                            )
+                        )
+                        if self._has_late_terminal_lifecycle(
+                            runtime_identity,
+                            registration_id,
+                        ):
+                            return
                 else:
                     executor_task.cancel()
                     executor_task.add_done_callback(consume_late_result)

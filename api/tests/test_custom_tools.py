@@ -1737,10 +1737,17 @@ class TestCustomToolManagerUnit:
             patch(
                 "api.services.workflow.pipecat_engine_custom_tools.execute_http_tool",
                 new_callable=AsyncMock,
-                return_value={
-                    "status": "late_terminal_pending",
-                    "registration_id": registration_id,
-                },
+                side_effect=[
+                    {
+                        "status": "late_terminal_pending",
+                        "registration_id": registration_id,
+                    },
+                    {
+                        "status": "success",
+                        "status_code": 200,
+                        "data": terminal,
+                    },
+                ],
             ),
             patch.object(
                 custom_tool_module,
@@ -1815,10 +1822,17 @@ class TestCustomToolManagerUnit:
             patch(
                 "api.services.workflow.pipecat_engine_custom_tools.execute_http_tool",
                 new_callable=AsyncMock,
-                return_value={
-                    "status": "late_terminal_pending",
-                    "registration_id": registration_id,
-                },
+                side_effect=[
+                    {
+                        "status": "late_terminal_pending",
+                        "registration_id": registration_id,
+                    },
+                    {
+                        "status": "success",
+                        "status_code": 410,
+                        "data": {"status": "acknowledged"},
+                    },
+                ],
             ),
             patch.object(
                 custom_tool_module,
@@ -2877,10 +2891,17 @@ class TestCustomToolManagerUnit:
             patch(
                 "api.services.workflow.pipecat_engine_custom_tools.execute_http_tool",
                 new_callable=AsyncMock,
-                return_value={
-                    "status": "late_terminal_pending",
-                    "registration_id": registration_id,
-                },
+                side_effect=[
+                    {
+                        "status": "late_terminal_pending",
+                        "registration_id": registration_id,
+                    },
+                    {
+                        "status": "success",
+                        "status_code": 410,
+                        "data": {"status": "revoked"},
+                    },
+                ],
             ),
             patch.object(
                 custom_tool_module,
@@ -3416,8 +3437,14 @@ class TestCustomToolManagerUnit:
             delivered.set()
 
         callback = AsyncMock(side_effect=record_result)
+        replay_callback = AsyncMock()
         params = Mock(
             tool_call_id="call_expiry_123", arguments={}, result_callback=callback
+        )
+        replay_params = Mock(
+            tool_call_id=params.tool_call_id,
+            arguments={},
+            result_callback=replay_callback,
         )
         identity = custom_tool_module.HttpToolRuntimeIdentity(
             tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(
@@ -3437,10 +3464,17 @@ class TestCustomToolManagerUnit:
             patch(
                 "api.services.workflow.pipecat_engine_custom_tools.execute_http_tool",
                 new_callable=AsyncMock,
-                return_value={
-                    "status": "late_terminal_pending",
-                    "registration_id": registration_id,
-                },
+                side_effect=[
+                    {
+                        "status": "late_terminal_pending",
+                        "registration_id": registration_id,
+                    },
+                    {
+                        "status": "success",
+                        "status_code": 410,
+                        "data": {"status": "expired"},
+                    },
+                ],
             ),
             patch.object(
                 custom_tool_module,
@@ -3457,7 +3491,9 @@ class TestCustomToolManagerUnit:
         ):
             await handler(params)
             await asyncio.wait_for(revoked.wait(), timeout=1)
+            await handler(replay_params)
             callback.assert_not_awaited()
+            replay_callback.assert_not_awaited()
             revoke.assert_awaited_once_with(tool, ANY, identity, registration_id, 7)
         await manager.cancel_late_terminal_observers()
 
