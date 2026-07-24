@@ -17,9 +17,11 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional
 from loguru import logger
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.frames.frames import (
+    FunctionCallCancelFrame,
     FunctionCallResultProperties,
     TTSSpeakFrame,
 )
+from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.utils.enums import EndTaskReason
 
@@ -41,6 +43,8 @@ from api.services.workflow.tools.custom_tool import (
 HTTP_TOOL_TIMEOUT_MARGIN_RATIO = 0.1
 HTTP_TOOL_TIMEOUT_MARGIN_MIN_SECONDS = 1.0
 HTTP_TOOL_TIMEOUT_MARGIN_MAX_SECONDS = 5.0
+LATE_TERMINAL_REVOKE_TIMEOUT_SECONDS = 0.05
+LATE_TERMINAL_CLEANUP_TIMEOUT_SECONDS = 0.1
 
 
 @dataclass
@@ -50,6 +54,19 @@ class _LateTerminalObserver:
         [Any, HttpToolRuntimeIdentity, str, Optional[int], Any],
         Awaitable[None],
     ]
+    tool_call_id: str
+    callback_suppressed: bool = False
+    revoke_started: bool = False
+
+
+class _LateTerminalCancellationObserver(BaseObserver):
+    def __init__(self, manager: "CustomToolManager") -> None:
+        super().__init__()
+        self._manager = manager
+
+    async def on_push_frame(self, data: FramePushed) -> None:
+        if isinstance(data.frame, FunctionCallCancelFrame):
+            await self._manager.cancel_late_terminal_observer(data.frame.tool_call_id)
 
 
 def _pipecat_http_tool_timeout(http_timeout_seconds: float) -> float:
@@ -105,19 +122,54 @@ class CustomToolManager:
     def __init__(self, engine: "PipecatEngine") -> None:
         self._engine = engine
         self._late_terminal_observers: dict[str, _LateTerminalObserver] = {}
+        self._late_terminal_cancellation_observer = (
+            _LateTerminalCancellationObserver(self)
+        )
+        if self._engine.task is not None:
+            self._engine.task.add_observer(self._late_terminal_cancellation_observer)
+
+    @staticmethod
+    def _consume_observer_result(task: asyncio.Task[None]) -> None:
+        try:
+            task.result()
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    async def _cancel_observers(
+        self, observers: list[_LateTerminalObserver]
+    ) -> None:
+        tasks = []
+        for observer in observers:
+            observer.callback_suppressed = True
+            if observer.task is not None:
+                observer.task.cancel()
+                tasks.append(observer.task)
+        if not tasks:
+            return
+        done, pending = await asyncio.wait(
+            tasks,
+            timeout=LATE_TERMINAL_CLEANUP_TIMEOUT_SECONDS,
+        )
+        for task in done:
+            self._consume_observer_result(task)
+        for task in pending:
+            task.add_done_callback(self._consume_observer_result)
 
     async def cancel_late_terminal_observers(self) -> None:
         """Revoke every live callback registration without reviving a disposed call."""
-        tasks = [
-            observer.task
-            for observer in self._late_terminal_observers.values()
-            if observer.task is not None
-        ]
+        observers = list(self._late_terminal_observers.values())
         self._late_terminal_observers.clear()
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        await self._cancel_observers(observers)
+
+    async def cancel_late_terminal_observer(self, tool_call_id: str) -> None:
+        """Cancel only the detached observer owned by one provider tool call."""
+        canonical_tool_call_id = canonicalize_http_tool_call_id(tool_call_id)
+        observers = []
+        for observer_key, observer in list(self._late_terminal_observers.items()):
+            if observer.tool_call_id == canonical_tool_call_id:
+                self._late_terminal_observers.pop(observer_key, None)
+                observers.append(observer)
+        await self._cancel_observers(observers)
 
     async def _play_config_message(
         self, config: dict, *, append_to_context: bool = False
@@ -433,6 +485,34 @@ class CustomToolManager:
                 registration_id: str,
                 organization_id: Optional[int],
             ) -> None:
+                async def revoke_once() -> None:
+                    if observer.revoke_started:
+                        return
+                    observer.revoke_started = True
+                    try:
+                        async with asyncio.timeout(
+                            LATE_TERMINAL_REVOKE_TIMEOUT_SECONDS
+                        ):
+                            await custom_tool_module.revoke_late_terminal(
+                                tool,
+                                capability,
+                                identity,
+                                registration_id,
+                                organization_id,
+                            )
+                    except TimeoutError:
+                        logger.warning(
+                            f"Timed out revoking late-terminal observer "
+                            f"for '{function_name}'"
+                        )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        logger.warning(
+                            f"Failed to revoke late-terminal observer "
+                            f"for '{function_name}'"
+                        )
+
                 try:
                     async with asyncio.timeout(capability.max_wait_ms / 1000):
                         while not self._engine.is_call_disposed():
@@ -444,6 +524,8 @@ class CustomToolManager:
                                 organization_id,
                             )
                             if outcome["status"] == "terminal":
+                                if observer.callback_suppressed:
+                                    return
                                 await observer.deliver(
                                     capability,
                                     identity,
@@ -453,30 +535,20 @@ class CustomToolManager:
                                 )
                                 return
                             if outcome["status"] == "error":
-                                await custom_tool_module.revoke_late_terminal(
-                                    tool,
-                                    capability,
-                                    identity,
-                                    registration_id,
-                                    organization_id,
-                                )
-                                await send_terminal_once(
-                                    {"status": "error", "error": outcome["error"]}
-                                )
+                                await revoke_once()
+                                if not observer.callback_suppressed:
+                                    await send_terminal_once(
+                                        {
+                                            "status": "error",
+                                            "error": outcome["error"],
+                                        }
+                                    )
                                 return
                             await asyncio.sleep(capability.poll_wait_ms / 1000)
                 except asyncio.TimeoutError:
-                    await custom_tool_module.revoke_late_terminal(
-                        tool, capability, identity, registration_id, organization_id
-                    )
+                    await revoke_once()
                 except asyncio.CancelledError:
-                    await custom_tool_module.revoke_late_terminal(
-                        tool,
-                        capability,
-                        identity,
-                        registration_id,
-                        organization_id,
-                    )
+                    await revoke_once()
                     raise
                 finally:
                     if self._late_terminal_observers.get(observer_key) is observer:
@@ -686,6 +758,7 @@ class CustomToolManager:
                     observer = _LateTerminalObserver(
                         task=None,
                         deliver=deliver_late_terminal,
+                        tool_call_id=runtime_identity.tool_call_id,
                     )
                     self._late_terminal_observers[observer_key] = observer
                     try:
