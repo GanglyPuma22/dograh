@@ -1690,6 +1690,58 @@ class TestCustomToolManagerUnit:
         assert manager._late_terminal_observers == {}
 
     @pytest.mark.asyncio
+    async def test_opted_in_fast_terminal_uses_original_callback_without_observer_or_transport_effects(self):
+        manager, tool = self._identity_manager_and_tool()
+        tool.definition["config"]["late_terminal"] = self._late_terminal_capability()
+        callback = AsyncMock()
+        params = Mock(tool_call_id="call_fast_123", arguments={}, result_callback=callback)
+        handler = manager._create_http_tool_handler(tool, "windows_open_app")
+        result = {"status": "succeeded", "execution_id": "exec_fast"}
+        with (
+            patch("api.services.workflow.pipecat_engine_custom_tools.execute_http_tool", new_callable=AsyncMock,
+                  return_value=result) as execute,
+            patch.object(custom_tool_module, "poll_late_terminal", new_callable=AsyncMock) as poll,
+            patch.object(custom_tool_module, "ack_late_terminal", new_callable=AsyncMock) as ack,
+            patch.object(custom_tool_module, "revoke_late_terminal", new_callable=AsyncMock) as revoke,
+        ):
+            await handler(params)
+        callback.assert_awaited_once_with(result)
+        execute.assert_awaited_once()
+        poll.assert_not_awaited()
+        ack.assert_not_awaited()
+        revoke.assert_not_awaited()
+        assert manager._late_terminal_observers == {}
+
+    @pytest.mark.asyncio
+    async def test_initial_timeout_proves_pending_then_observes_only_the_same_registration(self):
+        manager, tool = self._identity_manager_and_tool()
+        tool.definition["config"].update(late_terminal=self._late_terminal_capability(), timeout_ms=1)
+        callback = AsyncMock()
+        params = Mock(tool_call_id="call_timeout_pending_123", arguments={}, result_callback=callback)
+        identity = custom_tool_module.HttpToolRuntimeIdentity(
+            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(params.tool_call_id),
+            workflow_run_id="42", tool_uuid="windows-tool-uuid", agent_scope="jeeves_windows",
+        )
+        registration_id = custom_tool_module.late_terminal_registration_id(identity)
+        async def initial_request(**_kwargs):
+            await asyncio.Event().wait()
+        terminal = {"status": "succeeded", "execution_id": "exec_timeout"}
+        handler = manager._create_http_tool_handler(tool, "windows_open_app")
+        with (
+            patch("api.services.workflow.pipecat_engine_custom_tools.execute_http_tool", new_callable=AsyncMock,
+                  side_effect=initial_request) as execute,
+            patch.object(custom_tool_module, "poll_late_terminal", new_callable=AsyncMock,
+                         side_effect=[{"status": "pending"}, {"status": "terminal", "terminal": terminal}]) as poll,
+        ):
+            await handler(params)
+            await asyncio.sleep(0.02)
+        callback.assert_awaited_once()
+        assert callback.await_args.args[0] == terminal
+        execute.assert_awaited_once()
+        assert [call.args[3] for call in poll.await_args_list] == [registration_id, registration_id]
+        assert manager._late_terminal_observers == {}
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "terminal",
         [
@@ -1707,12 +1759,7 @@ class TestCustomToolManagerUnit:
         manager, tool = self._identity_manager_and_tool()
         tool.definition["config"]["late_terminal"] = self._late_terminal_capability()
         handler = manager._create_http_tool_handler(tool, "windows_open_app")
-        delivered = asyncio.Event()
-
-        async def record_result(*_args, **_kwargs):
-            delivered.set()
-
-        callback = AsyncMock(side_effect=record_result)
+        callback = AsyncMock()
         params = Mock(
             tool_call_id="call_terminal_matrix_123",
             arguments={"app_id": "app:v1:spotify"},
@@ -1820,10 +1867,8 @@ class TestCustomToolManagerUnit:
             patch.object(custom_tool_module, "revoke_late_terminal", new_callable=AsyncMock) as revoke,
         ):
             await handler(params)
-            await asyncio.wait_for(delivered.wait(), timeout=1)
-            callback.assert_awaited_once_with(
-                {"status": "error", "error": "Late-terminal observation expired"}
-            )
+            await asyncio.sleep(0.02)
+            callback.assert_not_awaited()
             revoke.assert_awaited_once_with(tool, ANY, identity, registration_id, 7)
         await manager.cancel_late_terminal_observers()
 
