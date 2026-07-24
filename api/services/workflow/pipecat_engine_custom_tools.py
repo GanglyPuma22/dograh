@@ -572,17 +572,41 @@ class CustomToolManager:
                     executor_task.cancel()
                     executor_task.add_done_callback(consume_late_result)
                     capability = custom_tool_module._late_terminal_capability(config)
-                    result = (
-                        {
-                            "status": "late_terminal_pending",
-                            "registration_id": custom_tool_module.late_terminal_registration_id(runtime_identity),
-                        }
-                        if capability is not None and runtime_identity is not None
-                        else {
+                    if capability is None or runtime_identity is None:
+                        result = {
                             "status": "error",
                             "error": f"Request timed out after {http_timeout_seconds} seconds",
                         }
-                    )
+                    else:
+                        registration_id = custom_tool_module.late_terminal_registration_id(
+                            runtime_identity
+                        )
+                        proof = await custom_tool_module.poll_late_terminal(
+                            tool,
+                            capability,
+                            runtime_identity,
+                            registration_id,
+                            await self.get_organization_id(),
+                        )
+                        if proof["status"] == "pending":
+                            result = {
+                                "status": "late_terminal_pending",
+                                "registration_id": registration_id,
+                            }
+                        elif proof["status"] == "terminal":
+                            result = proof["terminal"]
+                        else:
+                            await custom_tool_module.revoke_late_terminal(
+                                tool,
+                                capability,
+                                runtime_identity,
+                                registration_id,
+                                await self.get_organization_id(),
+                            )
+                            result = {
+                                "status": "error",
+                                "error": "Late-terminal registration was not proven",
+                            }
 
                 if result.get("status") == "late_terminal_pending":
                     capability = custom_tool_module._late_terminal_capability(config)

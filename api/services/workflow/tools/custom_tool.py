@@ -131,6 +131,7 @@ async def poll_late_terminal(
         and set(data) == {"version", "status", "terminal"}
         and data.get("version") == 1
         and data.get("status") == "terminal"
+        and isinstance(data["terminal"], dict)
     ):
         return {"status": "terminal", "terminal": data["terminal"]}
     return {"status": "error", "error": "Invalid late-terminal poll response"}
