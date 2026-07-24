@@ -728,7 +728,7 @@ class PipecatEngine:
 
         self._call_disposed = True
         if self._custom_tool_manager:
-            await self._custom_tool_manager.cancel_late_terminal_observers()
+            await self._custom_tool_manager.close_late_terminal_observers()
 
         # Mute the pipeline
         self._mute_pipeline = True
@@ -993,7 +993,7 @@ class PipecatEngine:
         """
         # Cancel any pending timeout tasks
         if self._custom_tool_manager:
-            await self._custom_tool_manager.cancel_late_terminal_observers()
+            await self._custom_tool_manager.close_late_terminal_observers()
         if (
             self._user_response_timeout_task
             and not self._user_response_timeout_task.done()
