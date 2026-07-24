@@ -1616,6 +1616,152 @@ class TestCustomToolManagerUnit:
         await manager.cancel_late_terminal_observers()
 
     @pytest.mark.asyncio
+    async def test_same_registration_replay_rebinds_the_live_callback(self):
+        """A replayed live call owns the eventual terminal callback."""
+        manager, tool = self._identity_manager_and_tool()
+        tool.definition["config"]["late_terminal"] = self._late_terminal_capability()
+        handler = manager._create_http_tool_handler(tool, "windows_open_app")
+        first_callback = AsyncMock()
+        replay_delivered = asyncio.Event()
+
+        async def record_replay(*_args, **_kwargs):
+            replay_delivered.set()
+
+        replay_callback = AsyncMock(side_effect=record_replay)
+        params = {
+            "tool_call_id": "call_same_registration_123",
+            "arguments": {"app_id": "app:v1:spotify"},
+        }
+        first_params = Mock(**params, result_callback=first_callback)
+        replay_params = Mock(**params, result_callback=replay_callback)
+        identity = custom_tool_module.HttpToolRuntimeIdentity(
+            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(
+                params["tool_call_id"]
+            ),
+            workflow_run_id="42",
+            tool_uuid="windows-tool-uuid",
+            agent_scope="jeeves_windows",
+        )
+        registration_id = custom_tool_module.late_terminal_registration_id(identity)
+        terminal = {"status": "succeeded", "execution_id": "exec_replayed"}
+        poll_started = asyncio.Event()
+        release_terminal = asyncio.Event()
+
+        async def delayed_terminal(*_args, **_kwargs):
+            poll_started.set()
+            await release_terminal.wait()
+            return {"status": "terminal", "terminal": terminal}
+
+        with (
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.execute_http_tool",
+                new_callable=AsyncMock,
+                return_value={
+                    "status": "late_terminal_pending",
+                    "registration_id": registration_id,
+                },
+            ),
+            patch.object(
+                custom_tool_module,
+                "poll_late_terminal",
+                new_callable=AsyncMock,
+                side_effect=delayed_terminal,
+            ),
+        ):
+            await handler(first_params)
+            await asyncio.wait_for(poll_started.wait(), timeout=1)
+            await handler(replay_params)
+            release_terminal.set()
+            await asyncio.wait_for(replay_delivered.wait(), timeout=1)
+
+        first_callback.assert_not_awaited()
+        replay_callback.assert_awaited_once()
+        assert replay_callback.await_args.args[0] == terminal
+        assert manager._late_terminal_observers == {}
+
+    @pytest.mark.asyncio
+    async def test_concurrent_same_registration_reserves_one_observer_atomically(self):
+        """Concurrent replays cannot create an orphan observer."""
+        manager, tool = self._identity_manager_and_tool()
+        tool.definition["config"]["late_terminal"] = self._late_terminal_capability()
+        handler = manager._create_http_tool_handler(tool, "windows_open_app")
+        first_callback = AsyncMock()
+        replay_callback = AsyncMock()
+        tool_call_id = "call_concurrent_registration_123"
+        first_params = Mock(
+            tool_call_id=tool_call_id,
+            arguments={"app_id": "app:v1:spotify"},
+            result_callback=first_callback,
+        )
+        replay_params = Mock(
+            tool_call_id=tool_call_id,
+            arguments={"app_id": "app:v1:spotify"},
+            result_callback=replay_callback,
+        )
+        identity = custom_tool_module.HttpToolRuntimeIdentity(
+            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(tool_call_id),
+            workflow_run_id="42",
+            tool_uuid="windows-tool-uuid",
+            agent_scope="jeeves_windows",
+        )
+        registration_id = custom_tool_module.late_terminal_registration_id(identity)
+        organization_calls = 0
+        reservation_waiters = 0
+        release_reservation = asyncio.Event()
+
+        async def synchronized_organization_id():
+            nonlocal organization_calls, reservation_waiters
+            organization_calls += 1
+            if organization_calls > 2:
+                reservation_waiters += 1
+                if reservation_waiters == 2:
+                    release_reservation.set()
+                await release_reservation.wait()
+            return 7
+
+        manager.get_organization_id = AsyncMock(
+            side_effect=synchronized_organization_id
+        )
+        release_poll = asyncio.Event()
+        first_poll = asyncio.Event()
+        terminal = {"status": "succeeded", "execution_id": "exec_concurrent"}
+
+        async def delayed_terminal(*_args, **_kwargs):
+            first_poll.set()
+            await release_poll.wait()
+            return {"status": "terminal", "terminal": terminal}
+
+        with (
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.execute_http_tool",
+                new_callable=AsyncMock,
+                return_value={
+                    "status": "late_terminal_pending",
+                    "registration_id": registration_id,
+                },
+            ),
+            patch.object(
+                custom_tool_module,
+                "poll_late_terminal",
+                new_callable=AsyncMock,
+                side_effect=delayed_terminal,
+            ) as poll,
+        ):
+            try:
+                await asyncio.gather(handler(first_params), handler(replay_params))
+                await asyncio.wait_for(first_poll.wait(), timeout=1)
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                    if poll.await_count > 1:
+                        break
+                assert poll.await_count == 1
+                assert len(manager._late_terminal_observers) == 1
+            finally:
+                release_poll.set()
+                await asyncio.sleep(0.05)
+                await manager.cancel_late_terminal_observers()
+
+    @pytest.mark.asyncio
     async def test_duplicate_terminal_transport_stops_after_one_callback_and_one_accepted_context_ack(
         self,
     ):
