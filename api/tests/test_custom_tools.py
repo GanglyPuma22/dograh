@@ -1910,6 +1910,11 @@ class TestCustomToolManagerUnit:
                 new_callable=AsyncMock,
                 side_effect=delayed_terminal,
             ) as poll,
+            patch.object(
+                custom_tool_module,
+                "revoke_late_terminal",
+                new_callable=AsyncMock,
+            ),
         ):
             try:
                 await asyncio.gather(handler(first_params), handler(replay_params))
