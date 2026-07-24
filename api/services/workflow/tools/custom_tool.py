@@ -24,6 +24,146 @@ TYPE_MAP = {
 
 RUNTIME_IDENTITY_HEADER = "X-Dograh-Runtime-Identity"
 RUNTIME_TOOL_CALL_ID_PREFIX = "tcid:v1:"
+LATE_TERMINAL_HEADER = "X-Jeeves-Late-Terminal"
+
+
+@dataclass(frozen=True)
+class LateTerminalCapability:
+    """Strict opt-in configuration for the versioned Jeeves late-result protocol."""
+
+    poll_url: str
+    revoke_url: str
+    ack_url: str
+    max_wait_ms: int
+    poll_wait_ms: int
+
+
+def _late_terminal_capability(config: Dict[str, Any]) -> Optional[LateTerminalCapability]:
+    value = config.get("late_terminal")
+    if value is None:
+        return None
+    required = {
+        "version",
+        "poll_url",
+        "revoke_url",
+        "ack_url",
+        "max_wait_ms",
+        "poll_wait_ms",
+    }
+    if not isinstance(value, dict) or set(value) != required or value.get("version") != 1:
+        raise ValueError("Invalid late-terminal capability")
+    urls = (value["poll_url"], value["revoke_url"], value["ack_url"])
+    if not all(isinstance(url, str) and url.strip() for url in urls):
+        raise ValueError("Invalid late-terminal capability")
+    max_wait_ms = value["max_wait_ms"]
+    poll_wait_ms = value["poll_wait_ms"]
+    if (
+        not isinstance(max_wait_ms, int)
+        or isinstance(max_wait_ms, bool)
+        or not isinstance(poll_wait_ms, int)
+        or isinstance(poll_wait_ms, bool)
+        or not 1 <= poll_wait_ms <= max_wait_ms <= 60_000
+    ):
+        raise ValueError("Invalid late-terminal capability")
+    return LateTerminalCapability(
+        poll_url=value["poll_url"],
+        revoke_url=value["revoke_url"],
+        ack_url=value["ack_url"],
+        max_wait_ms=max_wait_ms,
+        poll_wait_ms=poll_wait_ms,
+    )
+
+
+def late_terminal_registration_id(identity: "HttpToolRuntimeIdentity") -> str:
+    """Match the gateway's versioned registration derivation exactly."""
+    material = "\n".join(
+        (
+            "1",
+            identity.agent_scope,
+            identity.tool_call_id,
+            identity.tool_uuid,
+            identity.workflow_run_id,
+        )
+    )
+    return f"ltr_v1_{hashlib.sha256(material.encode('utf-8')).hexdigest()}"
+
+
+async def _late_terminal_headers(
+    tool: Any,
+    organization_id: Optional[int],
+    identity: "HttpToolRuntimeIdentity",
+) -> Dict[str, str]:
+    headers = dict((tool.definition or {}).get("config", {}).get("headers", {}) or {})
+    credential_uuid = (tool.definition or {}).get("config", {}).get("credential_uuid")
+    if credential_uuid and organization_id:
+        credential = await db_client.get_credential_by_uuid(credential_uuid, organization_id)
+        if credential:
+            headers.update(build_auth_header(credential))
+    headers[RUNTIME_IDENTITY_HEADER] = identity.as_header_value()
+    return headers
+
+
+async def poll_late_terminal(
+    tool: Any,
+    capability: LateTerminalCapability,
+    identity: "HttpToolRuntimeIdentity",
+    registration_id: str,
+    organization_id: Optional[int],
+) -> Dict[str, Any]:
+    """Read one exact registered outcome; malformed or unavailable replies fail closed."""
+    try:
+        headers = await _late_terminal_headers(tool, organization_id, identity)
+        async with httpx.AsyncClient(timeout=capability.poll_wait_ms / 1000) as client:
+            response = await client.request(
+                method="POST",
+                url=capability.poll_url,
+                headers=headers,
+                json={"version": 1, "registration_id": registration_id},
+            )
+        data = response.json()
+    except Exception:
+        return {"status": "error", "error": "Late-terminal polling failed"}
+    if response.status_code == 202 and data == {"version": 1, "status": "pending"}:
+        return {"status": "pending"}
+    if (
+        response.status_code == 200
+        and isinstance(data, dict)
+        and set(data) == {"version", "status", "terminal"}
+        and data.get("version") == 1
+        and data.get("status") == "terminal"
+    ):
+        return {"status": "terminal", "terminal": data["terminal"]}
+    return {"status": "error", "error": "Invalid late-terminal poll response"}
+
+
+async def _late_terminal_close(
+    tool: Any,
+    capability: LateTerminalCapability,
+    identity: "HttpToolRuntimeIdentity",
+    registration_id: str,
+    organization_id: Optional[int],
+    operation: str,
+) -> None:
+    url = capability.ack_url if operation == "ack" else capability.revoke_url
+    try:
+        headers = await _late_terminal_headers(tool, organization_id, identity)
+        async with httpx.AsyncClient(timeout=capability.poll_wait_ms / 1000) as client:
+            await client.request(
+                method="POST",
+                url=url,
+                headers=headers,
+                json={"version": 1, "registration_id": registration_id},
+            )
+    except Exception:
+        logger.warning("Late-terminal {} failed", operation)
+
+
+async def ack_late_terminal(*args: Any, **kwargs: Any) -> None:
+    await _late_terminal_close(*args, **kwargs, operation="ack")
+
+
+async def revoke_late_terminal(*args: Any, **kwargs: Any) -> None:
+    await _late_terminal_close(*args, **kwargs, operation="revoke")
 
 
 def canonicalize_http_tool_call_id(provider_tool_call_id: str) -> str:
@@ -264,6 +404,10 @@ async def execute_http_tool(
     """
     definition = tool.definition or {}
     config = definition.get("config", {})
+    try:
+        late_terminal = _late_terminal_capability(config)
+    except ValueError as e:
+        return {"status": "error", "error": str(e)}
 
     # Get HTTP method and URL
     method = config.get("method", "POST").upper()
@@ -312,6 +456,20 @@ async def execute_http_tool(
             }
         headers[RUNTIME_IDENTITY_HEADER] = runtime_identity.as_header_value()
 
+    registration_id = None
+    if late_terminal is not None:
+        if runtime_identity is None:
+            return {
+                "status": "error",
+                "error": "Runtime identity is required for this HTTP tool",
+            }
+        registration_id = late_terminal_registration_id(runtime_identity)
+        headers[LATE_TERMINAL_HEADER] = json.dumps(
+            {"version": 1, "registration_id": registration_id},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
     # Build request: JSON body for POST/PUT/PATCH, query params for GET/DELETE
     body = None
     params = None
@@ -344,6 +502,21 @@ async def execute_http_tool(
                 response_data = response.json()
             except Exception:
                 response_data = {"raw_response": response.text}
+
+            if response.status_code == 202 and late_terminal is not None:
+                if response_data != {
+                    "version": 1,
+                    "status": "pending",
+                    "registration_id": registration_id,
+                }:
+                    return {
+                        "status": "error",
+                        "error": "Invalid late-terminal pending response",
+                    }
+                return {
+                    "status": "late_terminal_pending",
+                    "registration_id": registration_id,
+                }
 
             result = {
                 "status": "success",
