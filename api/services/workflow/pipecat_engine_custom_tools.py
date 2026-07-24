@@ -333,6 +333,14 @@ class CustomToolManager:
             )
             http_timeout_secs = float(timeout_ms) / 1000
             timeout_secs = _pipecat_http_tool_timeout(http_timeout_secs)
+            try:
+                late_terminal = custom_tool_module._late_terminal_capability(
+                    (tool.definition or {}).get("config", {}) or {}
+                )
+            except ValueError:
+                late_terminal = None
+            if late_terminal is not None:
+                timeout_secs += late_terminal.poll_wait_ms / 1000
             handler = self._create_http_tool_handler(tool, function_name)
 
         return handler, timeout_secs
@@ -370,6 +378,39 @@ class CustomToolManager:
         ) -> None:
             terminal_sent = False
 
+            async def deliver_late_terminal(
+                capability: Any,
+                identity: HttpToolRuntimeIdentity,
+                registration_id: str,
+                organization_id: Optional[int],
+                terminal: Any,
+            ) -> None:
+                acknowledged = False
+
+                async def on_context_updated() -> None:
+                    nonlocal acknowledged
+                    if acknowledged:
+                        return
+                    acknowledged = True
+                    await custom_tool_module.ack_late_terminal(
+                        tool,
+                        capability,
+                        identity,
+                        registration_id,
+                        organization_id,
+                    )
+
+                nonlocal terminal_sent
+                if terminal_sent or self._engine.is_call_disposed():
+                    return
+                terminal_sent = True
+                await function_call_params.result_callback(
+                    terminal,
+                    properties=FunctionCallResultProperties(
+                        on_context_updated=on_context_updated
+                    ),
+                )
+
             async def observe_late_terminal(
                 observer_key: str,
                 capability: Any,
@@ -388,35 +429,21 @@ class CustomToolManager:
                                 organization_id,
                             )
                             if outcome["status"] == "terminal":
-                                acknowledged = False
-
-                                async def on_context_updated() -> None:
-                                    nonlocal acknowledged
-                                    if acknowledged:
-                                        return
-                                    acknowledged = True
-                                    await custom_tool_module.ack_late_terminal(
-                                        tool,
-                                        capability,
-                                        identity,
-                                        registration_id,
-                                        organization_id,
-                                    )
-
-                                nonlocal terminal_sent
-                                if terminal_sent or self._engine.is_call_disposed():
-                                    return
-                                terminal_sent = True
-                                await function_call_params.result_callback(
+                                await deliver_late_terminal(
+                                    capability,
+                                    identity,
+                                    registration_id,
+                                    organization_id,
                                     outcome["terminal"],
-                                    properties=FunctionCallResultProperties(
-                                        on_context_updated=on_context_updated
-                                    ),
                                 )
                                 return
                             if outcome["status"] == "error":
                                 await custom_tool_module.revoke_late_terminal(
-                                    tool, capability, identity, registration_id, organization_id
+                                    tool,
+                                    capability,
+                                    identity,
+                                    registration_id,
+                                    organization_id,
                                 )
                                 await send_terminal_once(
                                     {"status": "error", "error": outcome["error"]}
@@ -437,7 +464,10 @@ class CustomToolManager:
                     )
                     raise
                 finally:
-                    if self._late_terminal_observers.get(observer_key) is asyncio.current_task():
+                    if (
+                        self._late_terminal_observers.get(observer_key)
+                        is asyncio.current_task()
+                    ):
                         self._late_terminal_observers.pop(observer_key, None)
 
             async def send_terminal_once(result: Any) -> None:
@@ -575,15 +605,18 @@ class CustomToolManager:
                             "error": f"Request timed out after {http_timeout_seconds} seconds",
                         }
                     else:
-                        registration_id = custom_tool_module.late_terminal_registration_id(
-                            runtime_identity
+                        registration_id = (
+                            custom_tool_module.late_terminal_registration_id(
+                                runtime_identity
+                            )
                         )
+                        organization_id = await self.get_organization_id()
                         proof = await custom_tool_module.poll_late_terminal(
                             tool,
                             capability,
                             runtime_identity,
                             registration_id,
-                            await self.get_organization_id(),
+                            organization_id,
                         )
                         if proof["status"] == "pending":
                             result = {
@@ -591,7 +624,14 @@ class CustomToolManager:
                                 "registration_id": registration_id,
                             }
                         elif proof["status"] == "terminal":
-                            result = proof["terminal"]
+                            await deliver_late_terminal(
+                                capability,
+                                runtime_identity,
+                                registration_id,
+                                organization_id,
+                                proof["terminal"],
+                            )
+                            return
                         else:
                             await custom_tool_module.revoke_late_terminal(
                                 tool,
@@ -618,18 +658,23 @@ class CustomToolManager:
                         )
                     ):
                         await send_terminal_once(
-                            {"status": "error", "error": "Invalid late-terminal registration"}
+                            {
+                                "status": "error",
+                                "error": "Invalid late-terminal registration",
+                            }
                         )
                         return
                     observer_key = f"{runtime_identity.tool_call_id}:{registration_id}"
                     if observer_key not in self._late_terminal_observers:
-                        self._late_terminal_observers[observer_key] = asyncio.create_task(
-                            observe_late_terminal(
-                                observer_key,
-                                capability,
-                                runtime_identity,
-                                registration_id,
-                                await self.get_organization_id(),
+                        self._late_terminal_observers[observer_key] = (
+                            asyncio.create_task(
+                                observe_late_terminal(
+                                    observer_key,
+                                    capability,
+                                    runtime_identity,
+                                    registration_id,
+                                    await self.get_organization_id(),
+                                )
                             )
                         )
                     return
