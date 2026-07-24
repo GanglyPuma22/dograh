@@ -19,6 +19,7 @@ from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.frames.frames import (
     FunctionCallCancelFrame,
     FunctionCallResultProperties,
+    InterruptionFrame,
     TTSSpeakFrame,
 )
 from pipecat.observers.base_observer import BaseObserver, FramePushed
@@ -67,6 +68,8 @@ class _LateTerminalCancellationObserver(BaseObserver):
     async def on_push_frame(self, data: FramePushed) -> None:
         if isinstance(data.frame, FunctionCallCancelFrame):
             await self._manager.cancel_late_terminal_observer(data.frame.tool_call_id)
+        elif isinstance(data.frame, InterruptionFrame):
+            await self._manager.cancel_late_terminal_observers()
 
 
 def _pipecat_http_tool_timeout(http_timeout_seconds: float) -> float:
@@ -122,6 +125,7 @@ class CustomToolManager:
     def __init__(self, engine: "PipecatEngine") -> None:
         self._engine = engine
         self._late_terminal_observers: dict[str, _LateTerminalObserver] = {}
+        self._late_terminal_observers_closed = False
         self._late_terminal_cancellation_observer = (
             _LateTerminalCancellationObserver(self)
         )
@@ -160,6 +164,11 @@ class CustomToolManager:
         observers = list(self._late_terminal_observers.values())
         self._late_terminal_observers.clear()
         await self._cancel_observers(observers)
+
+    async def close_late_terminal_observers(self) -> None:
+        """Permanently close observer publication and revoke every live registration."""
+        self._late_terminal_observers_closed = True
+        await self.cancel_late_terminal_observers()
 
     async def cancel_late_terminal_observer(self, tool_call_id: str) -> None:
         """Cancel only the detached observer owned by one provider tool call."""
@@ -477,6 +486,40 @@ class CustomToolManager:
                     ),
                 )
 
+            async def revoke_once(
+                observer: _LateTerminalObserver,
+                capability: Any,
+                identity: HttpToolRuntimeIdentity,
+                registration_id: str,
+                organization_id: Optional[int],
+            ) -> None:
+                if observer.revoke_started:
+                    return
+                observer.revoke_started = True
+                try:
+                    async with asyncio.timeout(
+                        LATE_TERMINAL_REVOKE_TIMEOUT_SECONDS
+                    ):
+                        await custom_tool_module.revoke_late_terminal(
+                            tool,
+                            capability,
+                            identity,
+                            registration_id,
+                            organization_id,
+                        )
+                except TimeoutError:
+                    logger.warning(
+                        f"Timed out revoking late-terminal observer "
+                        f"for '{function_name}'"
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.warning(
+                        f"Failed to revoke late-terminal observer "
+                        f"for '{function_name}'"
+                    )
+
             async def observe_late_terminal(
                 observer_key: str,
                 observer: _LateTerminalObserver,
@@ -485,34 +528,6 @@ class CustomToolManager:
                 registration_id: str,
                 organization_id: Optional[int],
             ) -> None:
-                async def revoke_once() -> None:
-                    if observer.revoke_started:
-                        return
-                    observer.revoke_started = True
-                    try:
-                        async with asyncio.timeout(
-                            LATE_TERMINAL_REVOKE_TIMEOUT_SECONDS
-                        ):
-                            await custom_tool_module.revoke_late_terminal(
-                                tool,
-                                capability,
-                                identity,
-                                registration_id,
-                                organization_id,
-                            )
-                    except TimeoutError:
-                        logger.warning(
-                            f"Timed out revoking late-terminal observer "
-                            f"for '{function_name}'"
-                        )
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception:
-                        logger.warning(
-                            f"Failed to revoke late-terminal observer "
-                            f"for '{function_name}'"
-                        )
-
                 try:
                     async with asyncio.timeout(capability.max_wait_ms / 1000):
                         while not self._engine.is_call_disposed():
@@ -535,7 +550,13 @@ class CustomToolManager:
                                 )
                                 return
                             if outcome["status"] == "error":
-                                await revoke_once()
+                                await revoke_once(
+                                    observer,
+                                    capability,
+                                    identity,
+                                    registration_id,
+                                    organization_id,
+                                )
                                 if not observer.callback_suppressed:
                                     await send_terminal_once(
                                         {
@@ -546,9 +567,21 @@ class CustomToolManager:
                                 return
                             await asyncio.sleep(capability.poll_wait_ms / 1000)
                 except asyncio.TimeoutError:
-                    await revoke_once()
+                    await revoke_once(
+                        observer,
+                        capability,
+                        identity,
+                        registration_id,
+                        organization_id,
+                    )
                 except asyncio.CancelledError:
-                    await revoke_once()
+                    await revoke_once(
+                        observer,
+                        capability,
+                        identity,
+                        registration_id,
+                        organization_id,
+                    )
                     raise
                 finally:
                     if self._late_terminal_observers.get(observer_key) is observer:
@@ -750,16 +783,31 @@ class CustomToolManager:
                         return
                     observer_key = f"{runtime_identity.tool_call_id}:{registration_id}"
                     organization_id = await self.get_organization_id()
+                    new_observer = _LateTerminalObserver(
+                        task=None,
+                        deliver=deliver_late_terminal,
+                        tool_call_id=runtime_identity.tool_call_id,
+                    )
+                    if (
+                        self._late_terminal_observers_closed
+                        or self._engine.is_call_disposed()
+                    ):
+                        new_observer.callback_suppressed = True
+                        await revoke_once(
+                            new_observer,
+                            capability,
+                            runtime_identity,
+                            registration_id,
+                            organization_id,
+                        )
+                        return
+
                     observer = self._late_terminal_observers.get(observer_key)
                     if observer is not None:
                         observer.deliver = deliver_late_terminal
                         return
 
-                    observer = _LateTerminalObserver(
-                        task=None,
-                        deliver=deliver_late_terminal,
-                        tool_call_id=runtime_identity.tool_call_id,
-                    )
+                    observer = new_observer
                     self._late_terminal_observers[observer_key] = observer
                     try:
                         observer.task = asyncio.create_task(
