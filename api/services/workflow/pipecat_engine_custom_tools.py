@@ -46,14 +46,13 @@ HTTP_TOOL_TIMEOUT_MARGIN_MIN_SECONDS = 1.0
 HTTP_TOOL_TIMEOUT_MARGIN_MAX_SECONDS = 5.0
 LATE_TERMINAL_REVOKE_TIMEOUT_SECONDS = 0.05
 LATE_TERMINAL_CLEANUP_TIMEOUT_SECONDS = 0.1
-_NO_LATE_TERMINAL = object()
 
 
 @dataclass
 class _LateTerminalObserver:
     task: asyncio.Task[None] | None
     delivery_task: asyncio.Task[None] | None
-    deliver: Callable[
+    deliver_original: Callable[
         ["_LateTerminalObserver", int, Any, bool],
         Awaitable[None],
     ]
@@ -63,8 +62,6 @@ class _LateTerminalObserver:
     tool_call_id: str
     function_name: str
     owner_version: int = 0
-    terminal: Any = _NO_LATE_TERMINAL
-    terminal_requires_ack: bool = True
     delivered: bool = False
     acknowledged: bool = False
     callback_suppressed: bool = False
@@ -172,26 +169,6 @@ class CustomToolManager:
             self._late_terminal_observers.pop(observer.observer_key, None)
             self._late_terminal_completed[observer.observer_key] = observer
 
-    @staticmethod
-    def _rebind_observer(
-        observer: _LateTerminalObserver,
-        deliver: Callable[
-            [_LateTerminalObserver, int, Any, bool],
-            Awaitable[None],
-        ],
-    ) -> bool:
-        if (
-            observer.callback_suppressed
-            or observer.delivered
-            or observer.acknowledged
-        ):
-            return False
-        observer.owner_version += 1
-        observer.deliver = deliver
-        if observer.delivery_task is not None and not observer.delivery_task.done():
-            observer.delivery_task.cancel()
-        return True
-
     async def _revoke_observer(self, observer: _LateTerminalObserver) -> None:
         if observer.revoke_started or observer.acknowledged:
             return
@@ -242,13 +219,11 @@ class CustomToolManager:
             task.add_done_callback(self._consume_observer_result)
 
     async def cancel_late_terminal_observers(self) -> None:
-        """Revoke every live callback registration without reviving a disposed call."""
-        observers = [
-            *self._late_terminal_observers.values(),
-            *self._late_terminal_completed.values(),
-        ]
+        """Revoke live registrations and retain call-scoped replay tombstones."""
+        for observer_key, observer in self._late_terminal_observers.items():
+            self._late_terminal_completed.setdefault(observer_key, observer)
         self._late_terminal_observers.clear()
-        self._late_terminal_completed.clear()
+        observers = list(self._late_terminal_completed.values())
         await self._cancel_observers(observers)
 
     async def close_late_terminal_observers(self) -> None:
@@ -259,15 +234,15 @@ class CustomToolManager:
     async def cancel_late_terminal_observer(self, tool_call_id: str) -> None:
         """Cancel only the detached observer owned by one provider tool call."""
         canonical_tool_call_id = canonicalize_http_tool_call_id(tool_call_id)
-        observers = []
-        for observer_map in (
-            self._late_terminal_observers,
-            self._late_terminal_completed,
-        ):
-            for observer_key, observer in list(observer_map.items()):
-                if observer.tool_call_id == canonical_tool_call_id:
-                    observer_map.pop(observer_key, None)
-                    observers.append(observer)
+        for observer_key, observer in list(self._late_terminal_observers.items()):
+            if observer.tool_call_id == canonical_tool_call_id:
+                self._late_terminal_observers.pop(observer_key, None)
+                self._late_terminal_completed.setdefault(observer_key, observer)
+        observers = [
+            observer
+            for observer in self._late_terminal_completed.values()
+            if observer.tool_call_id == canonical_tool_call_id
+        ]
         await self._cancel_observers(observers)
 
     async def _play_config_message(
@@ -587,8 +562,6 @@ class CustomToolManager:
                 *,
                 requires_ack: bool,
             ) -> None:
-                observer.terminal = result
-                observer.terminal_requires_ack = requires_ack
                 while (
                     not observer.callback_suppressed
                     and not observer.delivered
@@ -597,7 +570,7 @@ class CustomToolManager:
                     owner_version = observer.owner_version
 
                     async def attempt_delivery() -> None:
-                        await observer.deliver(
+                        await observer.deliver_original(
                             observer,
                             owner_version,
                             result,
@@ -713,17 +686,13 @@ class CustomToolManager:
                 identity: HttpToolRuntimeIdentity,
                 registration_id: str,
                 organization_id: Optional[int],
-            ) -> tuple[_LateTerminalObserver, bool, bool]:
+            ) -> tuple[_LateTerminalObserver, bool]:
                 observer_key = f"{identity.tool_call_id}:{registration_id}"
                 observer = self._late_terminal_observers.get(observer_key)
                 if observer is None:
                     observer = self._late_terminal_completed.get(observer_key)
                 if observer is not None:
-                    rebound = self._rebind_observer(
-                        observer,
-                        deliver_owned_result,
-                    )
-                    return observer, False, rebound
+                    return observer, False
 
                 async def acknowledge_registration() -> None:
                     await custom_tool_module.ack_late_terminal(
@@ -746,7 +715,7 @@ class CustomToolManager:
                 observer = _LateTerminalObserver(
                     task=None,
                     delivery_task=None,
-                    deliver=deliver_owned_result,
+                    deliver_original=deliver_owned_result,
                     acknowledge=acknowledge_registration,
                     revoke=revoke_registration,
                     observer_key=observer_key,
@@ -758,9 +727,10 @@ class CustomToolManager:
                     or self._engine.is_call_disposed()
                 ):
                     observer.callback_suppressed = True
-                    return observer, True, False
+                    self._late_terminal_completed[observer_key] = observer
+                    return observer, True
                 self._late_terminal_observers[observer_key] = observer
-                return observer, True, True
+                return observer, True
 
             async def start_observer(
                 capability: Any,
@@ -770,25 +740,13 @@ class CustomToolManager:
                 *,
                 wait_for_proof: bool,
             ) -> None:
-                observer, created, rebound = reserve_observer(
+                observer, created = reserve_observer(
                     capability,
                     identity,
                     registration_id,
                     organization_id,
                 )
                 if not created:
-                    if (
-                        rebound
-                        and observer.terminal is not _NO_LATE_TERMINAL
-                        and (observer.task is None or observer.task.done())
-                    ):
-                        observer.task = asyncio.create_task(
-                            deliver_known_result(
-                                observer,
-                                observer.terminal,
-                                requires_ack=observer.terminal_requires_ack,
-                            )
-                        )
                     return
                 if observer.callback_suppressed:
                     await self._revoke_observer(observer)
