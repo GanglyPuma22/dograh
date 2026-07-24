@@ -46,16 +46,27 @@ HTTP_TOOL_TIMEOUT_MARGIN_MIN_SECONDS = 1.0
 HTTP_TOOL_TIMEOUT_MARGIN_MAX_SECONDS = 5.0
 LATE_TERMINAL_REVOKE_TIMEOUT_SECONDS = 0.05
 LATE_TERMINAL_CLEANUP_TIMEOUT_SECONDS = 0.1
+_NO_LATE_TERMINAL = object()
 
 
 @dataclass
 class _LateTerminalObserver:
     task: asyncio.Task[None] | None
+    delivery_task: asyncio.Task[None] | None
     deliver: Callable[
-        [Any, HttpToolRuntimeIdentity, str, Optional[int], Any],
+        ["_LateTerminalObserver", int, Any, bool],
         Awaitable[None],
     ]
+    acknowledge: Callable[[], Awaitable[None]]
+    revoke: Callable[[], Awaitable[None]]
+    observer_key: str
     tool_call_id: str
+    function_name: str
+    owner_version: int = 0
+    terminal: Any = _NO_LATE_TERMINAL
+    terminal_requires_ack: bool = True
+    delivered: bool = False
+    acknowledged: bool = False
     callback_suppressed: bool = False
     revoke_started: bool = False
 
@@ -125,6 +136,7 @@ class CustomToolManager:
     def __init__(self, engine: "PipecatEngine") -> None:
         self._engine = engine
         self._late_terminal_observers: dict[str, _LateTerminalObserver] = {}
+        self._late_terminal_completed: dict[str, _LateTerminalObserver] = {}
         self._late_terminal_observers_closed = False
         self._late_terminal_cancellation_observer = (
             _LateTerminalCancellationObserver(self)
@@ -139,15 +151,85 @@ class CustomToolManager:
         except (asyncio.CancelledError, Exception):
             pass
 
+    def _observer_is_eligible(
+        self,
+        observer: _LateTerminalObserver,
+        owner_version: int,
+    ) -> bool:
+        current = self._late_terminal_observers.get(observer.observer_key)
+        if current is None:
+            current = self._late_terminal_completed.get(observer.observer_key)
+        return (
+            current is observer
+            and not self._late_terminal_observers_closed
+            and not observer.callback_suppressed
+            and observer.owner_version == owner_version
+            and not self._engine.is_call_disposed()
+        )
+
+    def _complete_observer(self, observer: _LateTerminalObserver) -> None:
+        if self._late_terminal_observers.get(observer.observer_key) is observer:
+            self._late_terminal_observers.pop(observer.observer_key, None)
+            self._late_terminal_completed[observer.observer_key] = observer
+
+    @staticmethod
+    def _rebind_observer(
+        observer: _LateTerminalObserver,
+        deliver: Callable[
+            [_LateTerminalObserver, int, Any, bool],
+            Awaitable[None],
+        ],
+    ) -> bool:
+        if (
+            observer.callback_suppressed
+            or observer.delivered
+            or observer.acknowledged
+        ):
+            return False
+        observer.owner_version += 1
+        observer.deliver = deliver
+        if observer.delivery_task is not None and not observer.delivery_task.done():
+            observer.delivery_task.cancel()
+        return True
+
+    async def _revoke_observer(self, observer: _LateTerminalObserver) -> None:
+        if observer.revoke_started or observer.acknowledged:
+            return
+        observer.revoke_started = True
+        try:
+            async with asyncio.timeout(LATE_TERMINAL_REVOKE_TIMEOUT_SECONDS):
+                await observer.revoke()
+        except TimeoutError:
+            logger.warning(
+                f"Timed out revoking late-terminal observer "
+                f"for '{observer.function_name}'"
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning(
+                f"Failed to revoke late-terminal observer "
+                f"for '{observer.function_name}'"
+            )
+
     async def _cancel_observers(
         self, observers: list[_LateTerminalObserver]
     ) -> None:
-        tasks = []
-        for observer in observers:
+        tasks: set[asyncio.Task[None]] = set()
+        unique_observers = list({id(observer): observer for observer in observers}.values())
+        for observer in unique_observers:
             observer.callback_suppressed = True
+            observer.owner_version += 1
+            if (
+                observer.delivery_task is not None
+                and not observer.delivery_task.done()
+            ):
+                observer.delivery_task.cancel()
+                tasks.add(observer.delivery_task)
             if observer.task is not None:
                 observer.task.cancel()
-                tasks.append(observer.task)
+                tasks.add(observer.task)
+            tasks.add(asyncio.create_task(self._revoke_observer(observer)))
         if not tasks:
             return
         done, pending = await asyncio.wait(
@@ -161,8 +243,12 @@ class CustomToolManager:
 
     async def cancel_late_terminal_observers(self) -> None:
         """Revoke every live callback registration without reviving a disposed call."""
-        observers = list(self._late_terminal_observers.values())
+        observers = [
+            *self._late_terminal_observers.values(),
+            *self._late_terminal_completed.values(),
+        ]
         self._late_terminal_observers.clear()
+        self._late_terminal_completed.clear()
         await self._cancel_observers(observers)
 
     async def close_late_terminal_observers(self) -> None:
@@ -174,10 +260,14 @@ class CustomToolManager:
         """Cancel only the detached observer owned by one provider tool call."""
         canonical_tool_call_id = canonicalize_http_tool_call_id(tool_call_id)
         observers = []
-        for observer_key, observer in list(self._late_terminal_observers.items()):
-            if observer.tool_call_id == canonical_tool_call_id:
-                self._late_terminal_observers.pop(observer_key, None)
-                observers.append(observer)
+        for observer_map in (
+            self._late_terminal_observers,
+            self._late_terminal_completed,
+        ):
+            for observer_key, observer in list(observer_map.items()):
+                if observer.tool_call_id == canonical_tool_call_id:
+                    observer_map.pop(observer_key, None)
+                    observers.append(observer)
         await self._cancel_observers(observers)
 
     async def _play_config_message(
@@ -453,20 +543,189 @@ class CustomToolManager:
         ) -> None:
             terminal_sent = False
 
-            async def deliver_late_terminal(
+            async def deliver_owned_result(
+                observer: _LateTerminalObserver,
+                owner_version: int,
+                result: Any,
+                requires_ack: bool,
+            ) -> None:
+                async def on_context_updated() -> None:
+                    if (
+                        not requires_ack
+                        or observer.acknowledged
+                        or not self._observer_is_eligible(
+                            observer,
+                            owner_version,
+                        )
+                    ):
+                        return
+                    observer.acknowledged = True
+                    await observer.acknowledge()
+
+                nonlocal terminal_sent
+                if (
+                    terminal_sent
+                    or observer.delivered
+                    or observer.acknowledged
+                    or not self._observer_is_eligible(observer, owner_version)
+                ):
+                    return
+                terminal_sent = True
+                if requires_ack:
+                    await function_call_params.result_callback(
+                        result,
+                        properties=FunctionCallResultProperties(
+                            on_context_updated=on_context_updated
+                        ),
+                    )
+                else:
+                    await function_call_params.result_callback(result)
+
+            async def deliver_known_result(
+                observer: _LateTerminalObserver,
+                result: Any,
+                *,
+                requires_ack: bool,
+            ) -> None:
+                observer.terminal = result
+                observer.terminal_requires_ack = requires_ack
+                while (
+                    not observer.callback_suppressed
+                    and not observer.delivered
+                    and not observer.acknowledged
+                ):
+                    owner_version = observer.owner_version
+
+                    async def attempt_delivery() -> None:
+                        await observer.deliver(
+                            observer,
+                            owner_version,
+                            result,
+                            requires_ack,
+                        )
+                        if self._observer_is_eligible(observer, owner_version):
+                            observer.delivered = True
+                            self._complete_observer(observer)
+
+                    delivery_task = asyncio.create_task(attempt_delivery())
+                    observer.delivery_task = delivery_task
+                    try:
+                        await delivery_task
+                    except asyncio.CancelledError:
+                        current_task = asyncio.current_task()
+                        if (
+                            observer.callback_suppressed
+                            or current_task is None
+                            or current_task.cancelling()
+                        ):
+                            raise
+                        if owner_version != observer.owner_version:
+                            continue
+                        raise
+                    except Exception:
+                        logger.warning(
+                            f"Late-terminal callback failed "
+                            f"for '{function_name}'"
+                        )
+                        return
+                    finally:
+                        if observer.delivery_task is delivery_task:
+                            observer.delivery_task = None
+                    if owner_version == observer.owner_version:
+                        return
+
+            async def observe_late_terminal(
+                observer: _LateTerminalObserver,
                 capability: Any,
                 identity: HttpToolRuntimeIdentity,
                 registration_id: str,
                 organization_id: Optional[int],
-                terminal: Any,
+                proof_ready: asyncio.Future[None] | None = None,
             ) -> None:
-                acknowledged = False
+                def mark_proof_ready() -> None:
+                    if proof_ready is not None and not proof_ready.done():
+                        proof_ready.set_result(None)
 
-                async def on_context_updated() -> None:
-                    nonlocal acknowledged
-                    if acknowledged:
-                        return
-                    acknowledged = True
+                try:
+                    async with asyncio.timeout(capability.max_wait_ms / 1000):
+                        while self._observer_is_eligible(
+                            observer,
+                            observer.owner_version,
+                        ):
+                            outcome = await custom_tool_module.poll_late_terminal(
+                                tool,
+                                capability,
+                                identity,
+                                registration_id,
+                                organization_id,
+                            )
+                            if outcome["status"] == "pending":
+                                mark_proof_ready()
+                                await asyncio.sleep(
+                                    capability.poll_wait_ms / 1000
+                                )
+                                continue
+                            if outcome["status"] == "terminal":
+                                await deliver_known_result(
+                                    observer,
+                                    outcome["terminal"],
+                                    requires_ack=True,
+                                )
+                                mark_proof_ready()
+                                return
+                            await self._revoke_observer(observer)
+                            if self._observer_is_eligible(
+                                observer,
+                                observer.owner_version,
+                            ):
+                                error = (
+                                    "Late-terminal registration was not proven"
+                                    if proof_ready is not None
+                                    else outcome["error"]
+                                )
+                                await deliver_known_result(
+                                    observer,
+                                    {
+                                        "status": "error",
+                                        "error": error,
+                                    },
+                                    requires_ack=False,
+                                )
+                            mark_proof_ready()
+                            return
+                except asyncio.TimeoutError:
+                    await self._revoke_observer(observer)
+                except asyncio.CancelledError:
+                    await self._revoke_observer(observer)
+                    raise
+                except Exception:
+                    logger.warning(
+                        f"Late-terminal observer failed "
+                        f"for '{function_name}'"
+                    )
+                    await self._revoke_observer(observer)
+                finally:
+                    mark_proof_ready()
+                    self._complete_observer(observer)
+
+            def reserve_observer(
+                capability: Any,
+                identity: HttpToolRuntimeIdentity,
+                registration_id: str,
+                organization_id: Optional[int],
+            ) -> tuple[_LateTerminalObserver, bool, bool]:
+                observer_key = f"{identity.tool_call_id}:{registration_id}"
+                observer = self._late_terminal_observers.get(observer_key)
+                if observer is None:
+                    observer = self._late_terminal_completed.get(observer_key)
+                if observer is not None:
+                    rebound = self._rebind_observer(
+                        observer,
+                        deliver_owned_result,
+                    )
+                    return observer, False, rebound
+
+                async def acknowledge_registration() -> None:
                     await custom_tool_module.ack_late_terminal(
                         tool,
                         capability,
@@ -475,117 +734,92 @@ class CustomToolManager:
                         organization_id,
                     )
 
-                nonlocal terminal_sent
-                if terminal_sent or self._engine.is_call_disposed():
-                    return
-                terminal_sent = True
-                await function_call_params.result_callback(
-                    terminal,
-                    properties=FunctionCallResultProperties(
-                        on_context_updated=on_context_updated
-                    ),
-                )
+                async def revoke_registration() -> None:
+                    await custom_tool_module.revoke_late_terminal(
+                        tool,
+                        capability,
+                        identity,
+                        registration_id,
+                        organization_id,
+                    )
 
-            async def revoke_once(
-                observer: _LateTerminalObserver,
+                observer = _LateTerminalObserver(
+                    task=None,
+                    delivery_task=None,
+                    deliver=deliver_owned_result,
+                    acknowledge=acknowledge_registration,
+                    revoke=revoke_registration,
+                    observer_key=observer_key,
+                    tool_call_id=identity.tool_call_id,
+                    function_name=function_name,
+                )
+                if (
+                    self._late_terminal_observers_closed
+                    or self._engine.is_call_disposed()
+                ):
+                    observer.callback_suppressed = True
+                    return observer, True, False
+                self._late_terminal_observers[observer_key] = observer
+                return observer, True, True
+
+            async def start_observer(
                 capability: Any,
                 identity: HttpToolRuntimeIdentity,
                 registration_id: str,
                 organization_id: Optional[int],
+                *,
+                wait_for_proof: bool,
             ) -> None:
-                if observer.revoke_started:
-                    return
-                observer.revoke_started = True
-                try:
-                    async with asyncio.timeout(
-                        LATE_TERMINAL_REVOKE_TIMEOUT_SECONDS
+                observer, created, rebound = reserve_observer(
+                    capability,
+                    identity,
+                    registration_id,
+                    organization_id,
+                )
+                if not created:
+                    if (
+                        rebound
+                        and observer.terminal is not _NO_LATE_TERMINAL
+                        and (observer.task is None or observer.task.done())
                     ):
-                        await custom_tool_module.revoke_late_terminal(
-                            tool,
+                        observer.task = asyncio.create_task(
+                            deliver_known_result(
+                                observer,
+                                observer.terminal,
+                                requires_ack=observer.terminal_requires_ack,
+                            )
+                        )
+                    return
+                if observer.callback_suppressed:
+                    await self._revoke_observer(observer)
+                    return
+
+                proof_ready = (
+                    asyncio.get_running_loop().create_future()
+                    if wait_for_proof
+                    else None
+                )
+                try:
+                    observer.task = asyncio.create_task(
+                        observe_late_terminal(
+                            observer,
                             capability,
                             identity,
                             registration_id,
                             organization_id,
+                            proof_ready,
                         )
-                except TimeoutError:
-                    logger.warning(
-                        f"Timed out revoking late-terminal observer "
-                        f"for '{function_name}'"
                     )
-                except asyncio.CancelledError:
-                    raise
                 except Exception:
-                    logger.warning(
-                        f"Failed to revoke late-terminal observer "
-                        f"for '{function_name}'"
+                    self._late_terminal_observers.pop(
+                        observer.observer_key,
+                        None,
                     )
-
-            async def observe_late_terminal(
-                observer_key: str,
-                observer: _LateTerminalObserver,
-                capability: Any,
-                identity: HttpToolRuntimeIdentity,
-                registration_id: str,
-                organization_id: Optional[int],
-            ) -> None:
-                try:
-                    async with asyncio.timeout(capability.max_wait_ms / 1000):
-                        while not self._engine.is_call_disposed():
-                            outcome = await custom_tool_module.poll_late_terminal(
-                                tool,
-                                capability,
-                                identity,
-                                registration_id,
-                                organization_id,
-                            )
-                            if outcome["status"] == "terminal":
-                                if observer.callback_suppressed:
-                                    return
-                                await observer.deliver(
-                                    capability,
-                                    identity,
-                                    registration_id,
-                                    organization_id,
-                                    outcome["terminal"],
-                                )
-                                return
-                            if outcome["status"] == "error":
-                                await revoke_once(
-                                    observer,
-                                    capability,
-                                    identity,
-                                    registration_id,
-                                    organization_id,
-                                )
-                                if not observer.callback_suppressed:
-                                    await send_terminal_once(
-                                        {
-                                            "status": "error",
-                                            "error": outcome["error"],
-                                        }
-                                    )
-                                return
-                            await asyncio.sleep(capability.poll_wait_ms / 1000)
-                except asyncio.TimeoutError:
-                    await revoke_once(
-                        observer,
-                        capability,
-                        identity,
-                        registration_id,
-                        organization_id,
-                    )
-                except asyncio.CancelledError:
-                    await revoke_once(
-                        observer,
-                        capability,
-                        identity,
-                        registration_id,
-                        organization_id,
-                    )
+                    observer.callback_suppressed = True
+                    await self._revoke_observer(observer)
                     raise
-                finally:
-                    if self._late_terminal_observers.get(observer_key) is observer:
-                        self._late_terminal_observers.pop(observer_key, None)
+                if proof_ready is not None:
+                    await asyncio.shield(proof_ready)
 
             async def send_terminal_once(result: Any) -> None:
                 nonlocal terminal_sent
@@ -679,13 +913,14 @@ class CustomToolManager:
                     )
 
                 http_timeout_seconds = float(config.get("timeout_ms", 5000)) / 1000
+                organization_id = await self.get_organization_id()
                 executor_task = asyncio.create_task(
                     execute_http_tool(
                         tool=tool,
                         arguments=function_call_params.arguments,
                         call_context_vars=self._engine._call_context_vars,
                         gathered_context_vars=self._engine._gathered_context,
-                        organization_id=await self.get_organization_id(),
+                        organization_id=organization_id,
                         runtime_identity=runtime_identity,
                     )
                 )
@@ -727,40 +962,14 @@ class CustomToolManager:
                                 runtime_identity
                             )
                         )
-                        organization_id = await self.get_organization_id()
-                        proof = await custom_tool_module.poll_late_terminal(
-                            tool,
+                        await start_observer(
                             capability,
                             runtime_identity,
                             registration_id,
                             organization_id,
+                            wait_for_proof=True,
                         )
-                        if proof["status"] == "pending":
-                            result = {
-                                "status": "late_terminal_pending",
-                                "registration_id": registration_id,
-                            }
-                        elif proof["status"] == "terminal":
-                            await deliver_late_terminal(
-                                capability,
-                                runtime_identity,
-                                registration_id,
-                                organization_id,
-                                proof["terminal"],
-                            )
-                            return
-                        else:
-                            await custom_tool_module.revoke_late_terminal(
-                                tool,
-                                capability,
-                                runtime_identity,
-                                registration_id,
-                                await self.get_organization_id(),
-                            )
-                            result = {
-                                "status": "error",
-                                "error": "Late-terminal registration was not proven",
-                            }
+                        return
 
                 if result.get("status") == "late_terminal_pending":
                     capability = custom_tool_module._late_terminal_capability(config)
@@ -781,48 +990,13 @@ class CustomToolManager:
                             }
                         )
                         return
-                    observer_key = f"{runtime_identity.tool_call_id}:{registration_id}"
-                    organization_id = await self.get_organization_id()
-                    new_observer = _LateTerminalObserver(
-                        task=None,
-                        deliver=deliver_late_terminal,
-                        tool_call_id=runtime_identity.tool_call_id,
+                    await start_observer(
+                        capability,
+                        runtime_identity,
+                        registration_id,
+                        organization_id,
+                        wait_for_proof=False,
                     )
-                    if (
-                        self._late_terminal_observers_closed
-                        or self._engine.is_call_disposed()
-                    ):
-                        new_observer.callback_suppressed = True
-                        await revoke_once(
-                            new_observer,
-                            capability,
-                            runtime_identity,
-                            registration_id,
-                            organization_id,
-                        )
-                        return
-
-                    observer = self._late_terminal_observers.get(observer_key)
-                    if observer is not None:
-                        observer.deliver = deliver_late_terminal
-                        return
-
-                    observer = new_observer
-                    self._late_terminal_observers[observer_key] = observer
-                    try:
-                        observer.task = asyncio.create_task(
-                            observe_late_terminal(
-                                observer_key,
-                                observer,
-                                capability,
-                                runtime_identity,
-                                registration_id,
-                                organization_id,
-                            )
-                        )
-                    except Exception:
-                        self._late_terminal_observers.pop(observer_key, None)
-                        raise
                     return
 
                 await send_terminal_once(result)
