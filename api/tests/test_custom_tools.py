@@ -1452,6 +1452,109 @@ class TestCustomToolManagerUnit:
         ]
         assert outer_timeout > 0.02
 
+    @pytest.mark.asyncio
+    async def test_late_terminal_deadline_precedes_pipecat_outer_timeout(self):
+        """A registration proof cannot let Pipecat publish None before terminal truth."""
+        manager, tool = self._identity_manager_and_tool()
+        capability = self._late_terminal_capability()
+        capability.update(max_wait_ms=100, poll_wait_ms=1)
+        tool.definition["config"].update(
+            timeout_ms=1,
+            late_terminal=capability,
+        )
+        llm = MockLLMService()
+        task_manager = TaskManager()
+        task_manager.setup(TaskManagerParams(loop=asyncio.get_running_loop()))
+        llm._task_manager = task_manager
+        llm._pipeline_worker = Mock(app_resources=None)
+        llm._call_event_handler = AsyncMock()
+        manager._engine.llm = llm
+
+        with patch(
+            "api.services.workflow.pipecat_engine_custom_tools._pipecat_http_tool_timeout",
+            side_effect=lambda lifecycle_timeout: lifecycle_timeout + 0.02,
+        ):
+            handler, timeout_secs = manager._create_handler(
+                tool,
+                "windows_open_app",
+            )
+        llm.register_function(
+            "windows_open_app",
+            handler,
+            timeout_secs=timeout_secs,
+        )
+
+        frames = []
+
+        async def record_frame(frame_cls, **kwargs):
+            frames.append(frame_cls(**kwargs))
+
+        async def run_inline(runner_items):
+            for runner_item in runner_items:
+                await llm._run_function_call(runner_item)
+
+        llm.broadcast_frame = record_frame
+        llm._run_parallel_function_calls = run_inline
+        llm._run_sequential_function_calls = run_inline
+
+        call = FunctionCallFromLLM(
+            function_name="windows_open_app",
+            tool_call_id="call_shared_deadline_123",
+            arguments={"app_id": "app:v1:spotify"},
+            context=LLMContext(),
+        )
+        identity = custom_tool_module.HttpToolRuntimeIdentity(
+            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(
+                call.tool_call_id
+            ),
+            workflow_run_id="42",
+            tool_uuid="windows-tool-uuid",
+            agent_scope="jeeves_windows",
+        )
+        registration_id = custom_tool_module.late_terminal_registration_id(identity)
+        terminal = {"status": "succeeded", "execution_id": "exec_shared_deadline"}
+        release_probe = asyncio.Event()
+
+        async def initial_request(**_kwargs):
+            await asyncio.Event().wait()
+
+        async def delayed_terminal(*_args, **_kwargs):
+            await release_probe.wait()
+            return {"status": "terminal", "terminal": terminal}
+
+        async def release_after_old_outer_deadline():
+            await asyncio.sleep(0.05)
+            release_probe.set()
+
+        with (
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.execute_http_tool",
+                new_callable=AsyncMock,
+                side_effect=initial_request,
+            ),
+            patch.object(
+                custom_tool_module,
+                "poll_late_terminal",
+                new_callable=AsyncMock,
+                side_effect=delayed_terminal,
+            ),
+            patch.object(
+                custom_tool_module,
+                "ack_late_terminal",
+                new_callable=AsyncMock,
+            ) as ack,
+        ):
+            release_task = asyncio.create_task(release_after_old_outer_deadline())
+            await llm.run_function_calls([call])
+            await release_task
+            terminal_frames = [
+                frame for frame in frames if isinstance(frame, FunctionCallResultFrame)
+            ]
+            assert [frame.result for frame in terminal_frames] == [terminal]
+            await terminal_frames[0].properties.on_context_updated()
+
+        ack.assert_awaited_once_with(tool, ANY, identity, registration_id, 7)
+
     def test_opted_in_handler_outer_deadline_includes_one_registration_probe(self):
         """Pipecat cannot time out while the bounded post-timeout proof is still eligible."""
         manager, tool = self._identity_manager_and_tool()
@@ -2475,6 +2578,152 @@ class TestCustomToolManagerUnit:
         poll.assert_awaited_once_with(tool, ANY, identity, registration_id, 7)
         ack.assert_awaited_once_with(tool, ANY, identity, registration_id, 7)
         assert manager._late_terminal_observers == {}
+
+    @pytest.mark.asyncio
+    async def test_expiry_after_callback_entry_cannot_revoke_accepted_delivery(self):
+        """Callback entry linearizes completion ahead of observer expiry."""
+        manager, tool = self._identity_manager_and_tool()
+        capability = self._late_terminal_capability()
+        capability.update(max_wait_ms=10, poll_wait_ms=1)
+        tool.definition["config"]["late_terminal"] = capability
+        handler = manager._create_http_tool_handler(tool, "windows_open_app")
+        tool_call_id = "call_expiry_after_entry_123"
+        identity = custom_tool_module.HttpToolRuntimeIdentity(
+            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(tool_call_id),
+            workflow_run_id="42",
+            tool_uuid="windows-tool-uuid",
+            agent_scope="jeeves_windows",
+        )
+        registration_id = custom_tool_module.late_terminal_registration_id(identity)
+        terminal = {"status": "succeeded", "execution_id": "exec_expiry_entry"}
+        callback_entered = asyncio.Event()
+        release_callback = asyncio.Event()
+        release_context = asyncio.Event()
+        context_accepted = asyncio.Event()
+
+        async def result_callback(_result, *, properties):
+            async def accept_context():
+                await release_context.wait()
+                await properties.on_context_updated()
+                context_accepted.set()
+
+            asyncio.create_task(accept_context())
+            callback_entered.set()
+            await release_callback.wait()
+
+        with (
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.execute_http_tool",
+                new_callable=AsyncMock,
+                return_value={
+                    "status": "late_terminal_pending",
+                    "registration_id": registration_id,
+                },
+            ),
+            patch.object(
+                custom_tool_module,
+                "poll_late_terminal",
+                new_callable=AsyncMock,
+                return_value={"status": "terminal", "terminal": terminal},
+            ),
+            patch.object(
+                custom_tool_module,
+                "ack_late_terminal",
+                new_callable=AsyncMock,
+            ) as ack,
+            patch.object(
+                custom_tool_module,
+                "revoke_late_terminal",
+                new_callable=AsyncMock,
+            ) as revoke,
+        ):
+            await handler(
+                Mock(
+                    tool_call_id=tool_call_id,
+                    arguments={"app_id": "app:v1:spotify"},
+                    result_callback=result_callback,
+                )
+            )
+            await asyncio.wait_for(callback_entered.wait(), timeout=1)
+            await asyncio.sleep(0.02)
+            release_callback.set()
+            release_context.set()
+            await asyncio.wait_for(context_accepted.wait(), timeout=1)
+
+        revoke.assert_not_awaited()
+        ack.assert_awaited_once_with(tool, ANY, identity, registration_id, 7)
+
+    @pytest.mark.asyncio
+    async def test_cleanup_after_context_queue_preserves_completion_and_ack(self):
+        """Cleanup cannot revoke once the original callback queues downstream context."""
+        manager, tool = self._identity_manager_and_tool()
+        tool.definition["config"]["late_terminal"] = self._late_terminal_capability()
+        handler = manager._create_http_tool_handler(tool, "windows_open_app")
+        tool_call_id = "call_cleanup_after_queue_123"
+        identity = custom_tool_module.HttpToolRuntimeIdentity(
+            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(tool_call_id),
+            workflow_run_id="42",
+            tool_uuid="windows-tool-uuid",
+            agent_scope="jeeves_windows",
+        )
+        registration_id = custom_tool_module.late_terminal_registration_id(identity)
+        terminal = {"status": "succeeded", "execution_id": "exec_cleanup_queue"}
+        frame_queued = asyncio.Event()
+        release_callback = asyncio.Event()
+        release_context = asyncio.Event()
+        context_accepted = asyncio.Event()
+
+        async def result_callback(_result, *, properties):
+            async def accept_context():
+                await release_context.wait()
+                await properties.on_context_updated()
+                context_accepted.set()
+
+            asyncio.create_task(accept_context())
+            frame_queued.set()
+            await release_callback.wait()
+
+        with (
+            patch(
+                "api.services.workflow.pipecat_engine_custom_tools.execute_http_tool",
+                new_callable=AsyncMock,
+                return_value={
+                    "status": "late_terminal_pending",
+                    "registration_id": registration_id,
+                },
+            ),
+            patch.object(
+                custom_tool_module,
+                "poll_late_terminal",
+                new_callable=AsyncMock,
+                return_value={"status": "terminal", "terminal": terminal},
+            ),
+            patch.object(
+                custom_tool_module,
+                "ack_late_terminal",
+                new_callable=AsyncMock,
+            ) as ack,
+            patch.object(
+                custom_tool_module,
+                "revoke_late_terminal",
+                new_callable=AsyncMock,
+            ) as revoke,
+        ):
+            await handler(
+                Mock(
+                    tool_call_id=tool_call_id,
+                    arguments={"app_id": "app:v1:spotify"},
+                    result_callback=result_callback,
+                )
+            )
+            await asyncio.wait_for(frame_queued.wait(), timeout=1)
+            await manager.cancel_late_terminal_observers()
+            release_callback.set()
+            release_context.set()
+            await asyncio.wait_for(context_accepted.wait(), timeout=1)
+
+        revoke.assert_not_awaited()
+        ack.assert_awaited_once_with(tool, ANY, identity, registration_id, 7)
 
     @pytest.mark.asyncio
     async def test_opted_in_fast_terminal_uses_original_callback_without_observer_or_transport_effects(
