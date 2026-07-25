@@ -1698,9 +1698,7 @@ class TestCustomToolManagerUnit:
         handler = manager._create_http_tool_handler(tool, "windows_open_app")
         tool_call_id = "call_inflight_replay_123"
         identity = custom_tool_module.HttpToolRuntimeIdentity(
-            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(
-                tool_call_id
-            ),
+            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(tool_call_id),
             workflow_run_id="42",
             tool_uuid="windows-tool-uuid",
             agent_scope="jeeves_windows",
@@ -1795,9 +1793,7 @@ class TestCustomToolManagerUnit:
         handler = manager._create_http_tool_handler(tool, "windows_open_app")
         tool_call_id = "call_post_terminal_replay_123"
         identity = custom_tool_module.HttpToolRuntimeIdentity(
-            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(
-                tool_call_id
-            ),
+            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(tool_call_id),
             workflow_run_id="42",
             tool_uuid="windows-tool-uuid",
             agent_scope="jeeves_windows",
@@ -1892,9 +1888,7 @@ class TestCustomToolManagerUnit:
             result_callback=replay_callback,
         )
         identity = custom_tool_module.HttpToolRuntimeIdentity(
-            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(
-                tool_call_id
-            ),
+            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(tool_call_id),
             workflow_run_id="42",
             tool_uuid="windows-tool-uuid",
             agent_scope="jeeves_windows",
@@ -1976,9 +1970,7 @@ class TestCustomToolManagerUnit:
         handler = manager._create_http_tool_handler(tool, "windows_open_app")
         tool_call_id = f"call_original_owner_{replay_boundary}_123"
         identity = custom_tool_module.HttpToolRuntimeIdentity(
-            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(
-                tool_call_id
-            ),
+            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(tool_call_id),
             workflow_run_id="42",
             tool_uuid="windows-tool-uuid",
             agent_scope="jeeves_windows",
@@ -2941,9 +2933,7 @@ class TestCustomToolManagerUnit:
             result_callback=unrelated_callback,
         )
         identity = custom_tool_module.HttpToolRuntimeIdentity(
-            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(
-                tool_call_id
-            ),
+            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(tool_call_id),
             workflow_run_id="42",
             tool_uuid="windows-tool-uuid",
             agent_scope="jeeves_windows",
@@ -2957,8 +2947,8 @@ class TestCustomToolManagerUnit:
             tool_uuid="windows-tool-uuid",
             agent_scope="jeeves_windows",
         )
-        unrelated_registration_id = custom_tool_module.late_terminal_registration_id(
-            unrelated_identity
+        unrelated_registration_id = (
+            custom_tool_module.late_terminal_registration_id(unrelated_identity)
         )
         polling = asyncio.Event()
         poll_count = 0
@@ -3017,9 +3007,12 @@ class TestCustomToolManagerUnit:
                     iter(manager._late_terminal_observers.values())
                 )
                 assert (
-                    remaining_observer.tool_call_id == unrelated_identity.tool_call_id
+                    remaining_observer.tool_call_id
+                    == unrelated_identity.tool_call_id
                 )
-                revoke.assert_awaited_once_with(tool, ANY, identity, registration_id, 7)
+                revoke.assert_awaited_once_with(
+                    tool, ANY, identity, registration_id, 7
+                )
                 await manager.cancel_late_terminal_observers()
             finally:
                 await manager.cancel_late_terminal_observers()
@@ -3033,9 +3026,7 @@ class TestCustomToolManagerUnit:
         assert manager._late_terminal_observers == {}
 
     @pytest.mark.asyncio
-    async def test_user_interruption_revokes_and_replay_cannot_revive_the_observer(
-        self,
-    ):
+    async def test_user_interruption_revokes_and_replay_cannot_revive_the_observer(self):
         """An interrupted registration remains an ineligible duplicate tombstone."""
         manager, tool = self._identity_manager_and_tool()
         tool.definition["config"]["late_terminal"] = self._late_terminal_capability()
@@ -3054,9 +3045,7 @@ class TestCustomToolManagerUnit:
             result_callback=replay_callback,
         )
         identity = custom_tool_module.HttpToolRuntimeIdentity(
-            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(
-                tool_call_id
-            ),
+            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(tool_call_id),
             workflow_run_id="42",
             tool_uuid="windows-tool-uuid",
             agent_scope="jeeves_windows",
@@ -3106,13 +3095,17 @@ class TestCustomToolManagerUnit:
                     Mock(frame=InterruptionFrame())
                 )
                 assert manager._late_terminal_observers == {}
-                revoke.assert_awaited_once_with(tool, ANY, identity, registration_id, 7)
+                revoke.assert_awaited_once_with(
+                    tool, ANY, identity, registration_id, 7
+                )
                 await handler(replay_params)
                 await asyncio.sleep(0)
                 assert manager._late_terminal_observers == {}
                 assert len(manager._late_terminal_completed) == 1
                 assert poll.await_count == 1
-                revoke.assert_awaited_once_with(tool, ANY, identity, registration_id, 7)
+                revoke.assert_awaited_once_with(
+                    tool, ANY, identity, registration_id, 7
+                )
             finally:
                 await manager.cancel_late_terminal_observers()
 
@@ -3136,9 +3129,7 @@ class TestCustomToolManagerUnit:
             result_callback=callback,
         )
         identity = custom_tool_module.HttpToolRuntimeIdentity(
-            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(
-                tool_call_id
-            ),
+            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(tool_call_id),
             workflow_run_id="42",
             tool_uuid="windows-tool-uuid",
             agent_scope="jeeves_windows",
@@ -3202,9 +3193,7 @@ class TestCustomToolManagerUnit:
             result_callback=AsyncMock(),
         )
         identity = custom_tool_module.HttpToolRuntimeIdentity(
-            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(
-                tool_call_id
-            ),
+            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(tool_call_id),
             workflow_run_id="42",
             tool_uuid="windows-tool-uuid",
             agent_scope="jeeves_windows",
@@ -3275,9 +3264,7 @@ class TestCustomToolManagerUnit:
             result_callback=AsyncMock(),
         )
         identity = custom_tool_module.HttpToolRuntimeIdentity(
-            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(
-                tool_call_id
-            ),
+            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(tool_call_id),
             workflow_run_id="42",
             tool_uuid="windows-tool-uuid",
             agent_scope="jeeves_windows",
@@ -3355,9 +3342,7 @@ class TestCustomToolManagerUnit:
             result_callback=callback,
         )
         identity = custom_tool_module.HttpToolRuntimeIdentity(
-            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(
-                tool_call_id
-            ),
+            tool_call_id=custom_tool_module.canonicalize_http_tool_call_id(tool_call_id),
             workflow_run_id="42",
             tool_uuid="windows-tool-uuid",
             agent_scope="jeeves_windows",

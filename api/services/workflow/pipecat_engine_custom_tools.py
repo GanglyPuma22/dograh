@@ -155,17 +155,6 @@ class CustomToolManager:
     ) -> str:
         return f"{identity.tool_call_id}:{registration_id}"
 
-    def _has_late_terminal_lifecycle(
-        self,
-        identity: HttpToolRuntimeIdentity,
-        registration_id: str,
-    ) -> bool:
-        observer_key = self._late_terminal_observer_key(identity, registration_id)
-        return (
-            observer_key in self._late_terminal_observers
-            or observer_key in self._late_terminal_completed
-        )
-
     def _observer_is_eligible(
         self,
         observer: _LateTerminalObserver,
@@ -535,6 +524,8 @@ class CustomToolManager:
             function_call_params: FunctionCallParams,
         ) -> None:
             terminal_sent = False
+            lifecycle_observer: _LateTerminalObserver | None = None
+            organization_id: Optional[int] = None
 
             async def deliver_owned_result(
                 observer: _LateTerminalObserver,
@@ -703,7 +694,6 @@ class CustomToolManager:
                 capability: Any,
                 identity: HttpToolRuntimeIdentity,
                 registration_id: str,
-                organization_id: Optional[int],
             ) -> tuple[_LateTerminalObserver, bool]:
                 observer_key = self._late_terminal_observer_key(
                     identity,
@@ -754,6 +744,7 @@ class CustomToolManager:
                 return observer, True
 
             async def start_observer(
+                observer: _LateTerminalObserver,
                 capability: Any,
                 identity: HttpToolRuntimeIdentity,
                 registration_id: str,
@@ -761,14 +752,6 @@ class CustomToolManager:
                 *,
                 wait_for_proof: bool,
             ) -> None:
-                observer, created = reserve_observer(
-                    capability,
-                    identity,
-                    registration_id,
-                    organization_id,
-                )
-                if not created:
-                    return
                 if observer.callback_suppressed:
                     await self._revoke_observer(observer)
                     return
@@ -802,6 +785,13 @@ class CustomToolManager:
 
             async def send_terminal_once(result: Any) -> None:
                 nonlocal terminal_sent
+                if lifecycle_observer is not None:
+                    await deliver_known_result(
+                        lifecycle_observer,
+                        result,
+                        requires_ack=False,
+                    )
+                    return
                 if terminal_sent:
                     logger.warning(
                         f"Ignoring duplicate HTTP tool result for '{function_name}'"
@@ -843,6 +833,23 @@ class CustomToolManager:
                         tool_uuid=str(tool.tool_uuid),
                         agent_scope=agent_scope,
                     )
+                    capability = custom_tool_module._late_terminal_capability(config)
+                    if capability is not None:
+                        registration_id = (
+                            custom_tool_module.late_terminal_registration_id(
+                                runtime_identity
+                            )
+                        )
+                        lifecycle_observer, created = reserve_observer(
+                            capability,
+                            runtime_identity,
+                            registration_id,
+                        )
+                        if not created:
+                            return
+                        if lifecycle_observer.callback_suppressed:
+                            await self._revoke_observer(lifecycle_observer)
+                            return
                     correlation = hashlib.sha256(tool_call_id.encode()).hexdigest()[:12]
                     logger.info(
                         f"HTTP Tool EXECUTED: {function_name} "
@@ -926,22 +933,15 @@ class CustomToolManager:
 
                 if executor_task in completed:
                     result = await executor_task
-                    if runtime_identity is not None:
-                        registration_id = (
-                            custom_tool_module.late_terminal_registration_id(
-                                runtime_identity
-                            )
-                        )
-                        if self._has_late_terminal_lifecycle(
-                            runtime_identity,
-                            registration_id,
-                        ):
-                            return
                 else:
                     executor_task.cancel()
                     executor_task.add_done_callback(consume_late_result)
                     capability = custom_tool_module._late_terminal_capability(config)
-                    if capability is None or runtime_identity is None:
+                    if (
+                        capability is None
+                        or runtime_identity is None
+                        or lifecycle_observer is None
+                    ):
                         result = {
                             "status": "error",
                             "error": f"Request timed out after {http_timeout_seconds} seconds",
@@ -953,6 +953,7 @@ class CustomToolManager:
                             )
                         )
                         await start_observer(
+                            lifecycle_observer,
                             capability,
                             runtime_identity,
                             registration_id,
@@ -981,6 +982,7 @@ class CustomToolManager:
                         )
                         return
                     await start_observer(
+                        lifecycle_observer,
                         capability,
                         runtime_identity,
                         registration_id,
@@ -991,6 +993,11 @@ class CustomToolManager:
 
                 await send_terminal_once(result)
 
+            except asyncio.CancelledError:
+                if lifecycle_observer is not None:
+                    self._complete_observer(lifecycle_observer)
+                    await self._revoke_observer(lifecycle_observer)
+                raise
             except Exception as e:
                 logger.error(f"HTTP tool '{function_name}' execution failed: {e}")
                 await send_terminal_once({"status": "error", "error": str(e)})
