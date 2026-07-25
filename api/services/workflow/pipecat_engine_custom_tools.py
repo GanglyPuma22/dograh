@@ -136,8 +136,8 @@ class CustomToolManager:
         self._late_terminal_observers: dict[str, _LateTerminalObserver] = {}
         self._late_terminal_completed: dict[str, _LateTerminalObserver] = {}
         self._late_terminal_observers_closed = False
-        self._late_terminal_cancellation_observer = (
-            _LateTerminalCancellationObserver(self)
+        self._late_terminal_cancellation_observer = _LateTerminalCancellationObserver(
+            self
         )
         if self._engine.task is not None:
             self._engine.task.add_observer(self._late_terminal_cancellation_observer)
@@ -216,20 +216,17 @@ class CustomToolManager:
                 f"for '{observer.function_name}'"
             )
 
-    async def _cancel_observers(
-        self, observers: list[_LateTerminalObserver]
-    ) -> None:
+    async def _cancel_observers(self, observers: list[_LateTerminalObserver]) -> None:
         tasks: set[asyncio.Task[None]] = set()
-        unique_observers = list({id(observer): observer for observer in observers}.values())
+        unique_observers = list(
+            {id(observer): observer for observer in observers}.values()
+        )
         for observer in unique_observers:
             if observer.callback_entered:
                 continue
             observer.callback_suppressed = True
             observer.owner_version += 1
-            if (
-                observer.delivery_task is not None
-                and not observer.delivery_task.done()
-            ):
+            if observer.delivery_task is not None and not observer.delivery_task.done():
                 observer.delivery_task.cancel()
                 tasks.add(observer.delivery_task)
             if observer.task is not None:
@@ -636,8 +633,7 @@ class CustomToolManager:
                         raise
                     except Exception:
                         logger.warning(
-                            f"Late-terminal callback failed "
-                            f"for '{function_name}'"
+                            f"Late-terminal callback failed for '{function_name}'"
                         )
                         return
                     finally:
@@ -677,9 +673,7 @@ class CustomToolManager:
                             )
                             if outcome["status"] == "pending":
                                 mark_proof_ready()
-                                await asyncio.sleep(
-                                    capability.poll_wait_ms / 1000
-                                )
+                                await asyncio.sleep(capability.poll_wait_ms / 1000)
                                 continue
                             if outcome["status"] == "terminal":
                                 delivery_result = outcome["terminal"]
@@ -716,8 +710,7 @@ class CustomToolManager:
                     raise
                 except Exception:
                     logger.warning(
-                        f"Late-terminal observer failed "
-                        f"for '{function_name}'"
+                        f"Late-terminal observer failed for '{function_name}'"
                     )
                     await self._revoke_observer(observer)
                 finally:
