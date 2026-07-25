@@ -38,7 +38,9 @@ class LateTerminalCapability:
     poll_wait_ms: int
 
 
-def _late_terminal_capability(config: Dict[str, Any]) -> Optional[LateTerminalCapability]:
+def _late_terminal_capability(
+    config: Dict[str, Any],
+) -> Optional[LateTerminalCapability]:
     value = config.get("late_terminal")
     if value is None:
         return None
@@ -50,7 +52,11 @@ def _late_terminal_capability(config: Dict[str, Any]) -> Optional[LateTerminalCa
         "max_wait_ms",
         "poll_wait_ms",
     }
-    if not isinstance(value, dict) or set(value) != required or value.get("version") != 1:
+    if (
+        not isinstance(value, dict)
+        or set(value) != required
+        or value.get("version") != 1
+    ):
         raise ValueError("Invalid late-terminal capability")
     urls = (value["poll_url"], value["revoke_url"], value["ack_url"])
     if not all(isinstance(url, str) and url.strip() for url in urls):
@@ -96,7 +102,9 @@ async def _late_terminal_headers(
     headers = dict((tool.definition or {}).get("config", {}).get("headers", {}) or {})
     credential_uuid = (tool.definition or {}).get("config", {}).get("credential_uuid")
     if credential_uuid and organization_id:
-        credential = await db_client.get_credential_by_uuid(credential_uuid, organization_id)
+        credential = await db_client.get_credential_by_uuid(
+            credential_uuid, organization_id
+        )
         if credential:
             headers.update(build_auth_header(credential))
     headers[RUNTIME_IDENTITY_HEADER] = identity.as_header_value()
