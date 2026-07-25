@@ -1555,8 +1555,8 @@ class TestCustomToolManagerUnit:
 
         ack.assert_awaited_once_with(tool, ANY, identity, registration_id, 7)
 
-    def test_opted_in_handler_outer_deadline_includes_one_registration_probe(self):
-        """Pipecat cannot time out while the bounded post-timeout proof is still eligible."""
+    def test_opted_in_handler_outer_deadline_contains_shared_lifecycle_budget(self):
+        """Pipecat's timeout strictly contains HTTP and late-terminal deadlines."""
         manager, tool = self._identity_manager_and_tool()
         capability = self._late_terminal_capability()
         capability["poll_wait_ms"] = 5_000
@@ -1567,7 +1567,7 @@ class TestCustomToolManagerUnit:
 
         _handler, outer_timeout = manager._create_handler(tool, "windows_open_app")
 
-        assert outer_timeout == pytest.approx(11.0)
+        assert outer_timeout == pytest.approx(70.0)
 
     @pytest.mark.asyncio
     async def test_registered_http_handler_ignores_late_executor_completion(self):

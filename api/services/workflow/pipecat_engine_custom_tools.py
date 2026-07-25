@@ -64,6 +64,7 @@ class _LateTerminalObserver:
     owner_version: int = 0
     delivered: bool = False
     acknowledged: bool = False
+    callback_entered: bool = False
     callback_suppressed: bool = False
     revoke_started: bool = False
 
@@ -176,8 +177,27 @@ class CustomToolManager:
             self._late_terminal_observers.pop(observer.observer_key, None)
             self._late_terminal_completed[observer.observer_key] = observer
 
+    def _observer_owns_completion(
+        self,
+        observer: _LateTerminalObserver,
+        owner_version: int,
+    ) -> bool:
+        current = self._late_terminal_observers.get(observer.observer_key)
+        if current is None:
+            current = self._late_terminal_completed.get(observer.observer_key)
+        return (
+            current is observer
+            and observer.callback_entered
+            and not observer.revoke_started
+            and observer.owner_version == owner_version
+        )
+
     async def _revoke_observer(self, observer: _LateTerminalObserver) -> None:
-        if observer.revoke_started or observer.acknowledged:
+        if (
+            observer.revoke_started
+            or observer.acknowledged
+            or observer.callback_entered
+        ):
             return
         observer.revoke_started = True
         try:
@@ -202,6 +222,8 @@ class CustomToolManager:
         tasks: set[asyncio.Task[None]] = set()
         unique_observers = list({id(observer): observer for observer in observers}.values())
         for observer in unique_observers:
+            if observer.callback_entered:
+                continue
             observer.callback_suppressed = True
             observer.owner_version += 1
             if (
@@ -487,7 +509,10 @@ class CustomToolManager:
             except ValueError:
                 late_terminal = None
             if late_terminal is not None:
-                timeout_secs += late_terminal.poll_wait_ms / 1000
+                lifecycle_timeout_secs = (
+                    http_timeout_secs + late_terminal.max_wait_ms / 1000
+                )
+                timeout_secs = _pipecat_http_tool_timeout(lifecycle_timeout_secs)
             handler = self._create_http_tool_handler(tool, function_name)
 
         return handler, timeout_secs
@@ -525,6 +550,7 @@ class CustomToolManager:
         ) -> None:
             terminal_sent = False
             lifecycle_observer: _LateTerminalObserver | None = None
+            lifecycle_deadline: float | None = None
             organization_id: Optional[int] = None
 
             async def deliver_owned_result(
@@ -537,7 +563,7 @@ class CustomToolManager:
                     if (
                         not requires_ack
                         or observer.acknowledged
-                        or not self._observer_is_eligible(
+                        or not self._observer_owns_completion(
                             observer,
                             owner_version,
                         )
@@ -554,6 +580,7 @@ class CustomToolManager:
                     or not self._observer_is_eligible(observer, owner_version)
                 ):
                     return
+                observer.callback_entered = True
                 terminal_sent = True
                 if requires_ack:
                     await function_call_params.result_callback(
@@ -585,7 +612,10 @@ class CustomToolManager:
                             result,
                             requires_ack,
                         )
-                        if self._observer_is_eligible(observer, owner_version):
+                        if self._observer_owns_completion(
+                            observer,
+                            owner_version,
+                        ) or self._observer_is_eligible(observer, owner_version):
                             observer.delivered = True
                             self._complete_observer(observer)
 
@@ -622,14 +652,18 @@ class CustomToolManager:
                 identity: HttpToolRuntimeIdentity,
                 registration_id: str,
                 organization_id: Optional[int],
+                deadline: float,
                 proof_ready: asyncio.Future[None] | None = None,
             ) -> None:
                 def mark_proof_ready() -> None:
                     if proof_ready is not None and not proof_ready.done():
                         proof_ready.set_result(None)
 
+                delivery_result: Any = None
+                delivery_requires_ack = False
+                should_deliver = False
                 try:
-                    async with asyncio.timeout(capability.max_wait_ms / 1000):
+                    async with asyncio.timeout_at(deadline):
                         while self._observer_is_eligible(
                             observer,
                             observer.owner_version,
@@ -648,13 +682,10 @@ class CustomToolManager:
                                 )
                                 continue
                             if outcome["status"] == "terminal":
-                                await deliver_known_result(
-                                    observer,
-                                    outcome["terminal"],
-                                    requires_ack=True,
-                                )
-                                mark_proof_ready()
-                                return
+                                delivery_result = outcome["terminal"]
+                                delivery_requires_ack = True
+                                should_deliver = True
+                                break
                             await self._revoke_observer(observer)
                             if self._observer_is_eligible(
                                 observer,
@@ -665,16 +696,19 @@ class CustomToolManager:
                                     if proof_ready is not None
                                     else outcome["error"]
                                 )
-                                await deliver_known_result(
-                                    observer,
-                                    {
-                                        "status": "error",
-                                        "error": error,
-                                    },
-                                    requires_ack=False,
-                                )
-                            mark_proof_ready()
-                            return
+                                delivery_result = {
+                                    "status": "error",
+                                    "error": error,
+                                }
+                                should_deliver = True
+                            break
+                    if should_deliver:
+                        await deliver_known_result(
+                            observer,
+                            delivery_result,
+                            requires_ack=delivery_requires_ack,
+                        )
+                    mark_proof_ready()
                 except asyncio.TimeoutError:
                     await self._revoke_observer(observer)
                 except asyncio.CancelledError:
@@ -750,6 +784,7 @@ class CustomToolManager:
                 registration_id: str,
                 organization_id: Optional[int],
                 *,
+                deadline: float,
                 wait_for_proof: bool,
             ) -> None:
                 if observer.callback_suppressed:
@@ -769,6 +804,7 @@ class CustomToolManager:
                             identity,
                             registration_id,
                             organization_id,
+                            deadline,
                             proof_ready,
                         )
                     )
@@ -802,6 +838,7 @@ class CustomToolManager:
 
             try:
                 config = tool.definition.get("config", {}) if tool.definition else {}
+                http_timeout_seconds = float(config.get("timeout_ms", 5000)) / 1000
                 runtime_identity = None
                 if config.get("forward_runtime_identity") is True:
                     tool_call_id = function_call_params.tool_call_id
@@ -898,7 +935,6 @@ class CustomToolManager:
                         )
                     )
 
-                http_timeout_seconds = float(config.get("timeout_ms", 5000)) / 1000
                 organization_id = await self.get_organization_id()
                 executor_task = asyncio.create_task(
                     execute_http_tool(
@@ -924,7 +960,8 @@ class CustomToolManager:
 
                 try:
                     completed, _pending = await asyncio.wait(
-                        {executor_task}, timeout=http_timeout_seconds
+                        {executor_task},
+                        timeout=http_timeout_seconds,
                     )
                 except asyncio.CancelledError:
                     executor_task.cancel()
@@ -952,12 +989,17 @@ class CustomToolManager:
                                 runtime_identity
                             )
                         )
+                        lifecycle_deadline = (
+                            asyncio.get_running_loop().time()
+                            + capability.max_wait_ms / 1000
+                        )
                         await start_observer(
                             lifecycle_observer,
                             capability,
                             runtime_identity,
                             registration_id,
                             organization_id,
+                            deadline=lifecycle_deadline,
                             wait_for_proof=True,
                         )
                         return
@@ -981,12 +1023,17 @@ class CustomToolManager:
                             }
                         )
                         return
+                    lifecycle_deadline = (
+                        asyncio.get_running_loop().time()
+                        + capability.max_wait_ms / 1000
+                    )
                     await start_observer(
                         lifecycle_observer,
                         capability,
                         runtime_identity,
                         registration_id,
                         organization_id,
+                        deadline=lifecycle_deadline,
                         wait_for_proof=False,
                     )
                     return
