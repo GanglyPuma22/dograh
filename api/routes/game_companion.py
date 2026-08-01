@@ -130,10 +130,7 @@ async def serve_game_companion(
             elif isinstance(message, ToolResult):
                 await session.submit_tool_result(message)
             elif isinstance(message, MemoryResult):
-                raise ProtocolError(
-                    "unexpected_memory_result",
-                    "memory results are not enabled in this milestone",
-                )
+                await session.submit_memory_result(message)
     except WebSocketDisconnect:
         pass
     except ProtocolError as exc:

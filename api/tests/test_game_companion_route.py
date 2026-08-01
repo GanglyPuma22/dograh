@@ -35,6 +35,7 @@ class RecordingSession:
         self.ended = []
         self.interrupted = []
         self.tool_results = []
+        self.memory_results = []
         self.closed = False
 
     async def start_turn(self, turn_id, context):
@@ -70,6 +71,10 @@ class RecordingSession:
 
     async def submit_tool_result(self, result):
         self.tool_results.append(result)
+        await self.emit(State(type="state", turn_id=result.turn_id, state="thinking"))
+
+    async def submit_memory_result(self, result):
+        self.memory_results.append(result)
         await self.emit(State(type="state", turn_id=result.turn_id, state="thinking"))
 
     async def interrupt(self, turn_id):
@@ -220,6 +225,34 @@ def test_typed_tool_result_is_forwarded_after_turn_end(enabled_client):
     websocket.__exit__(None, None, None)
 
     assert sessions[0].tool_results[0].call_id == "call-1"
+
+
+def test_typed_memory_result_is_forwarded_after_turn_end(enabled_client):
+    client, sessions = enabled_client
+    websocket, connection, _acknowledgement = connect_and_hello(client)
+    connection.send_json({"type": "turn_start", "turn_id": "turn-1", "context": {}})
+    assert connection.receive_json()["state"] == "listening"
+    connection.send_json({"type": "turn_end", "turn_id": "turn-1"})
+    assert connection.receive_json()["type"] == "caption"
+    assert connection.receive_json()["type"] == "audio_start"
+    assert connection.receive_bytes()
+    assert connection.receive_json()["type"] == "audio_end"
+
+    connection.send_json(
+        {
+            "type": "memory_result",
+            "turn_id": "turn-1",
+            "query_id": "query-1",
+            "ok": True,
+            "records": [{"event_id": "event-1", "event_type": "session_started"}],
+        }
+    )
+    assert connection.receive_json()["state"] == "thinking"
+    websocket.__exit__(None, None, None)
+
+    result = sessions[0].memory_results[0]
+    assert result.query_id == "query-1"
+    assert result.records == [{"event_id": "event-1", "event_type": "session_started"}]
 
 
 def test_binary_before_turn_start_is_rejected(enabled_client):

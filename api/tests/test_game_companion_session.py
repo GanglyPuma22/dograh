@@ -1,6 +1,9 @@
 import asyncio
+import json
 import wave
 from io import BytesIO
+
+import pytest
 
 from api.services.game_companion.persona import ASTER_SYSTEM_PROMPT
 from api.services.game_companion.protocol import (
@@ -8,6 +11,9 @@ from api.services.game_companion.protocol import (
     AudioStart,
     Caption,
     ErrorMessage,
+    MemoryQuery,
+    MemoryResult,
+    ProtocolError,
     State,
     ToolCall,
     ToolResult,
@@ -265,6 +271,375 @@ async def test_tool_call_pauses_final_narration_until_typed_result():
     assert tts.calls == ["The starting moon is now your navigation target."]
     assert len(llm.calls) == 2
     assert any(message["role"] == "tool" for message in llm.calls[1]["messages"])
+    await session.close()
+
+
+@pytest.mark.parametrize(
+    ("name", "arguments"),
+    [
+        ("recent_activity", {"limit": 10}),
+        ("activity_for_body", {"body_id": "planet_01_moon", "limit": 8}),
+        ("unresolved_incidents", {"limit": 5}),
+        ("prior_failure", {"category": "landing", "limit": 3}),
+        ("journal_item_sources", {"item_id": "episode-1"}),
+    ],
+)
+async def test_registered_memory_query_pauses_interpretation_until_typed_result(
+    name, arguments
+):
+    llm = FakeLLM(
+        results=[
+            LLMResult(
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="query-1",
+                        name=name,
+                        arguments=arguments,
+                    ),
+                )
+            ),
+            LLMResult(text="That is what the expedition record says."),
+        ]
+    )
+    tts = FakeTTS()
+    session = CompanionSession(providers=fake_providers(llm=llm, tts=tts))
+    await session.start_turn("turn-1", {})
+    await session.append_audio("turn-1", b"\x00\x00")
+    await session.end_turn("turn-1")
+
+    query = await wait_for_event(session, MemoryQuery)
+    assert query.query_id == "query-1"
+    assert query.name == name
+    assert query.arguments == arguments
+    assert not any(
+        isinstance(event, Caption) and event.speaker == "assistant"
+        for event in session.outbound_events
+    )
+
+    records = [
+        {
+            "schema_version": 1,
+            "event_id": "event-1",
+            "event_type": "navigation_target_changed",
+            "body_id": "planet_01_moon",
+            "summary": "Navigation target changed to the starting moon.",
+        }
+    ]
+    await session.submit_memory_result(
+        MemoryResult(
+            type="memory_result",
+            turn_id="turn-1",
+            query_id="query-1",
+            ok=True,
+            records=records,
+        )
+    )
+    await session.wait_for_turn("turn-1")
+
+    assert tts.calls == ["That is what the expedition record says."]
+    assert len(llm.calls) == 2
+    offered_names = {tool["function"]["name"] for tool in llm.calls[0]["tools"]}
+    assert name in offered_names
+    memory_message = llm.calls[1]["messages"][-1]
+    assert memory_message["role"] == "tool"
+    assert memory_message["tool_call_id"] == "query-1"
+    assert json.loads(memory_message["content"]) == {
+        "ok": True,
+        "records": records,
+        "error": None,
+    }
+    assert ": " not in memory_message["content"]
+    assert ", " not in memory_message["content"]
+    await session.close()
+
+
+@pytest.mark.parametrize(
+    ("name", "arguments", "expected_arguments"),
+    [
+        ("recent_activity", {}, {"limit": 10}),
+        (
+            "activity_for_body",
+            {"body_id": "planet_01_moon"},
+            {"body_id": "planet_01_moon", "limit": 10},
+        ),
+        ("unresolved_incidents", {}, {"limit": 10}),
+        (
+            "prior_failure",
+            {"category": "landing"},
+            {"category": "landing", "limit": 10},
+        ),
+        (
+            "journal_item_sources",
+            {"item_id": "episode-1"},
+            {"item_id": "episode-1"},
+        ),
+    ],
+)
+async def test_memory_queries_materialize_default_limits(
+    name, arguments, expected_arguments
+):
+    llm = FakeLLM(
+        results=[
+            LLMResult(
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="query-1",
+                        name=name,
+                        arguments=arguments,
+                    ),
+                )
+            )
+        ]
+    )
+    session = CompanionSession(
+        providers=fake_providers(llm=llm),
+        timeouts=ProviderTimeouts(stt=1.0, llm=1.0, tts=1.0, tool=0.01),
+    )
+    await session.start_turn("turn-1", {})
+    await session.append_audio("turn-1", b"\x00\x00")
+    await session.end_turn("turn-1")
+
+    query = await wait_for_event(session, MemoryQuery)
+
+    assert query.arguments == expected_arguments
+    await session.close()
+
+
+@pytest.mark.parametrize(
+    ("name", "arguments"),
+    [
+        ("recent_activity", {"limit": 0}),
+        ("recent_activity", {"limit": 21}),
+        ("recent_activity", {"limit": True}),
+        ("recent_activity", {"limit": 1, "extra": "not allowed"}),
+        ("activity_for_body", {"limit": 1}),
+        ("activity_for_body", {"body_id": " planet_01", "limit": 1}),
+        ("activity_for_body", {"body_id": "\U0001f30c" * 33, "limit": 1}),
+        ("unresolved_incidents", {"body_id": "planet_01"}),
+        ("prior_failure", {"category": "", "limit": 1}),
+        ("journal_item_sources", {}),
+        ("journal_item_sources", {"item_id": "episode-1", "limit": 1}),
+    ],
+)
+async def test_invalid_memory_query_arguments_fail_before_socket_emission(
+    name, arguments
+):
+    llm = FakeLLM(
+        results=[
+            LLMResult(
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="query-1",
+                        name=name,
+                        arguments=arguments,
+                    ),
+                )
+            )
+        ]
+    )
+    session = CompanionSession(
+        providers=fake_providers(llm=llm),
+        timeouts=ProviderTimeouts(stt=1.0, llm=1.0, tts=1.0, tool=0.01),
+    )
+    await session.start_turn("turn-1", {})
+    await session.append_audio("turn-1", b"\x00\x00")
+    await session.end_turn("turn-1")
+    await session.wait_for_turn("turn-1")
+
+    assert not any(isinstance(event, MemoryQuery) for event in session.outbound_events)
+    error = next(
+        event for event in session.outbound_events if isinstance(event, ErrorMessage)
+    )
+    assert error.code == "provider_failure"
+    await session.close()
+
+
+async def test_memory_result_cannot_exceed_the_requested_record_limit():
+    llm = FakeLLM(
+        results=[
+            LLMResult(
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="query-1",
+                        name="recent_activity",
+                        arguments={"limit": 1},
+                    ),
+                )
+            ),
+            LLMResult(text="One record was returned."),
+        ]
+    )
+    session = CompanionSession(providers=fake_providers(llm=llm))
+    await session.start_turn("turn-1", {})
+    await session.append_audio("turn-1", b"\x00\x00")
+    await session.end_turn("turn-1")
+    await wait_for_event(session, MemoryQuery)
+
+    with pytest.raises(ProtocolError, match="memory_result_too_large"):
+        await session.submit_memory_result(
+            MemoryResult(
+                type="memory_result",
+                turn_id="turn-1",
+                query_id="query-1",
+                ok=True,
+                records=[{"event_id": "event-1"}, {"event_id": "event-2"}],
+            )
+        )
+
+    await session.submit_memory_result(
+        MemoryResult(
+            type="memory_result",
+            turn_id="turn-1",
+            query_id="query-1",
+            ok=True,
+            records=[{"event_id": "event-1"}],
+        )
+    )
+    await session.wait_for_turn("turn-1")
+    await session.close()
+
+
+async def test_failed_memory_result_is_interpreted_without_inventing_records():
+    llm = FakeLLM(
+        results=[
+            LLMResult(
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="query-1",
+                        name="activity_for_body",
+                        arguments={"body_id": "unknown_body", "limit": 2},
+                    ),
+                )
+            ),
+            LLMResult(text="I could not find that body in the expedition record."),
+        ]
+    )
+    session = CompanionSession(providers=fake_providers(llm=llm))
+    await session.start_turn("turn-1", {})
+    await session.append_audio("turn-1", b"\x00\x00")
+    await session.end_turn("turn-1")
+    await wait_for_event(session, MemoryQuery)
+
+    await session.submit_memory_result(
+        MemoryResult(
+            type="memory_result",
+            turn_id="turn-1",
+            query_id="query-1",
+            ok=False,
+            error="unknown body_id",
+        )
+    )
+    await session.wait_for_turn("turn-1")
+
+    memory_content = json.loads(llm.calls[1]["messages"][-1]["content"])
+    assert memory_content == {
+        "ok": False,
+        "records": [],
+        "error": "unknown body_id",
+    }
+    await session.close()
+
+
+async def test_memory_result_query_id_must_own_the_pending_request():
+    llm = FakeLLM(
+        results=[
+            LLMResult(
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="query-1",
+                        name="recent_activity",
+                        arguments={"limit": 1},
+                    ),
+                )
+            ),
+            LLMResult(text="The record is empty."),
+        ]
+    )
+    session = CompanionSession(providers=fake_providers(llm=llm))
+    await session.start_turn("turn-1", {})
+    await session.append_audio("turn-1", b"\x00\x00")
+    await session.end_turn("turn-1")
+    await wait_for_event(session, MemoryQuery)
+
+    with pytest.raises(ProtocolError, match="unexpected_memory_result"):
+        await session.submit_memory_result(
+            MemoryResult(
+                type="memory_result",
+                turn_id="turn-1",
+                query_id="query-other",
+                ok=True,
+                records=[],
+            )
+        )
+
+    await session.submit_memory_result(
+        MemoryResult(
+            type="memory_result",
+            turn_id="turn-1",
+            query_id="query-1",
+            ok=True,
+            records=[],
+        )
+    )
+    await session.wait_for_turn("turn-1")
+    await session.close()
+
+
+async def test_action_id_cannot_be_reused_in_a_later_llm_round():
+    llm = FakeLLM(
+        results=[
+            LLMResult(
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="action-1",
+                        name="recent_activity",
+                        arguments={"limit": 1},
+                    ),
+                )
+            ),
+            LLMResult(
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="action-1",
+                        name="set_navigation_target",
+                        arguments={"body_id": "planet_01_moon"},
+                    ),
+                )
+            ),
+        ]
+    )
+    session = CompanionSession(providers=fake_providers(llm=llm))
+    await session.start_turn("turn-1", {})
+    await session.append_audio("turn-1", b"\x00\x00")
+    await session.end_turn("turn-1")
+    await wait_for_event(session, MemoryQuery)
+
+    await session.submit_memory_result(
+        MemoryResult(
+            type="memory_result",
+            turn_id="turn-1",
+            query_id="action-1",
+            ok=True,
+            records=[],
+        )
+    )
+    await session.wait_for_turn("turn-1")
+
+    assert (
+        len(
+            [
+                event
+                for event in session.outbound_events
+                if isinstance(event, MemoryQuery)
+            ]
+        )
+        == 1
+    )
+    assert not any(isinstance(event, ToolCall) for event in session.outbound_events)
+    error = next(
+        event for event in session.outbound_events if isinstance(event, ErrorMessage)
+    )
+    assert error.code == "provider_failure"
     await session.close()
 
 

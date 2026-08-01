@@ -18,6 +18,8 @@ from api.services.game_companion.protocol import (
     AudioStart,
     Caption,
     ErrorMessage,
+    MemoryQuery,
+    MemoryResult,
     ProtocolError,
     ServerMessage,
     State,
@@ -35,6 +37,119 @@ from api.services.game_companion.providers import (
 OutboundEvent = ServerMessage | bytes
 EmitCallback = Callable[[OutboundEvent], Awaitable[None]]
 
+MAX_MEMORY_QUERY_LIMIT = 20
+DEFAULT_MEMORY_QUERY_LIMIT = 10
+MEMORY_QUERY_NAMES = frozenset(
+    {
+        "recent_activity",
+        "activity_for_body",
+        "unresolved_incidents",
+        "prior_failure",
+        "journal_item_sources",
+    }
+)
+MEMORY_QUERY_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "recent_activity",
+            "description": "Read the most recent canonical gameplay activity.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": MAX_MEMORY_QUERY_LIMIT,
+                        "default": DEFAULT_MEMORY_QUERY_LIMIT,
+                    }
+                },
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "activity_for_body",
+            "description": "Read canonical activity for one stable body ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "body_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": MAX_MEMORY_QUERY_LIMIT,
+                        "default": DEFAULT_MEMORY_QUERY_LIMIT,
+                    },
+                },
+                "required": ["body_id"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "unresolved_incidents",
+            "description": "Read canonical unresolved incident activity.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": MAX_MEMORY_QUERY_LIMIT,
+                        "default": DEFAULT_MEMORY_QUERY_LIMIT,
+                    }
+                },
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "prior_failure",
+            "description": "Read prior failed activity for one stable category.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": MAX_MEMORY_QUERY_LIMIT,
+                        "default": DEFAULT_MEMORY_QUERY_LIMIT,
+                    },
+                },
+                "required": ["category"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "journal_item_sources",
+            "description": "Read canonical source events for one journal item.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "item_id": {"type": "string", "minLength": 1, "maxLength": 128}
+                },
+                "required": ["item_id"],
+                "additionalProperties": False,
+            },
+        },
+    },
+]
+
 
 @dataclass(frozen=True, slots=True)
 class ProviderTimeouts:
@@ -42,6 +157,12 @@ class ProviderTimeouts:
     llm: float = 45.0
     tts: float = 45.0
     tool: float = 30.0
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingMemoryResult:
+    future: asyncio.Future[MemoryResult]
+    max_records: int
 
 
 @dataclass(slots=True)
@@ -55,6 +176,10 @@ class _TurnRuntime:
     pending_tool_results: dict[str, asyncio.Future[ToolResult]] = field(
         default_factory=dict
     )
+    pending_memory_results: dict[str, _PendingMemoryResult] = field(
+        default_factory=dict
+    )
+    used_action_ids: set[str] = field(default_factory=set)
 
 
 class CompanionSession:
@@ -155,6 +280,21 @@ class CompanionSession:
             )
         future.set_result(result)
 
+    async def submit_memory_result(self, result: MemoryResult) -> None:
+        runtime = self._require_active(result.turn_id)
+        pending = runtime.pending_memory_results.get(result.query_id)
+        if pending is None or pending.future.done():
+            raise ProtocolError(
+                "unexpected_memory_result",
+                f"no pending memory query owns query_id {result.query_id!r}",
+            )
+        if len(result.records) > pending.max_records:
+            raise ProtocolError(
+                "memory_result_too_large",
+                "memory result exceeds the originating query limit",
+            )
+        pending.future.set_result(result)
+
     async def interrupt(self, turn_id: str) -> None:
         runtime = self._require_active(turn_id)
         self.cancelled_turn_ids.append(turn_id)
@@ -229,54 +369,89 @@ class CompanionSession:
                 message="A companion provider failed.",
             )
         finally:
-            self._cancel_pending_tool_results(runtime)
+            self._cancel_pending_results(runtime)
 
     async def _respond_with_tools(
         self, runtime: _TurnRuntime, messages: list[dict]
     ) -> str:
         for _ in range(4):
             async with asyncio.timeout(self.timeouts.llm):
-                result = await self.providers.llm.respond(messages, ASTER_TOOLS)
+                result = await self.providers.llm.respond(
+                    messages, ASTER_TOOLS + MEMORY_QUERY_TOOLS
+                )
             if not self._owns(runtime):
                 return ""
             if not result.tool_calls:
                 return result.text.strip()
-            tool_results = await self._request_tools(runtime, result)
-            messages.extend(_tool_result_messages(result, tool_results))
+            action_results = await self._request_actions(runtime, result)
+            messages.extend(_action_result_messages(result, action_results))
         raise ProviderError("OpenRouter LLM exceeded the tool-call limit")
 
-    async def _request_tools(
+    async def _request_actions(
         self, runtime: _TurnRuntime, result: LLMResult
-    ) -> list[ToolResult]:
+    ) -> list[ToolResult | MemoryResult]:
         loop = asyncio.get_running_loop()
+        memory_arguments: dict[str, dict[str, JsonValue]] = {}
         for call in result.tool_calls:
-            if call.name != "set_navigation_target":
-                raise ProviderError("OpenRouter LLM requested an unregistered tool")
-            if call.call_id in runtime.pending_tool_results:
+            if call.call_id in runtime.used_action_ids:
                 raise ProviderError("OpenRouter LLM repeated a tool call ID")
-            runtime.pending_tool_results[call.call_id] = loop.create_future()
+            runtime.used_action_ids.add(call.call_id)
+            if call.name == "set_navigation_target":
+                if (
+                    call.call_id in runtime.pending_tool_results
+                    or call.call_id in runtime.pending_memory_results
+                ):
+                    raise ProviderError("OpenRouter LLM repeated a tool call ID")
+                runtime.pending_tool_results[call.call_id] = loop.create_future()
+            elif call.name in MEMORY_QUERY_NAMES:
+                if (
+                    call.call_id in runtime.pending_tool_results
+                    or call.call_id in runtime.pending_memory_results
+                ):
+                    raise ProviderError("OpenRouter LLM repeated a tool call ID")
+                arguments = _normalize_memory_query_arguments(call.name, call.arguments)
+                memory_arguments[call.call_id] = arguments
+                runtime.pending_memory_results[call.call_id] = _PendingMemoryResult(
+                    future=loop.create_future(),
+                    max_records=arguments.get("limit", MAX_MEMORY_QUERY_LIMIT),
+                )
+            else:
+                raise ProviderError("OpenRouter LLM requested an unregistered tool")
 
         for call in result.tool_calls:
-            await self._emit(
-                runtime,
-                ToolCall(
+            if call.name == "set_navigation_target":
+                event: ToolCall | MemoryQuery = ToolCall(
                     type="tool_call",
                     turn_id=runtime.turn_id,
                     call_id=call.call_id,
                     name="set_navigation_target",
                     arguments=call.arguments,
-                ),
-            )
+                )
+            else:
+                event = MemoryQuery(
+                    type="memory_query",
+                    turn_id=runtime.turn_id,
+                    query_id=call.call_id,
+                    name=call.name,
+                    arguments=memory_arguments[call.call_id],
+                )
+            await self._emit(runtime, event)
 
-        results: list[ToolResult] = []
+        results: list[ToolResult | MemoryResult] = []
         for call in result.tool_calls:
-            future = runtime.pending_tool_results[call.call_id]
+            if call.name == "set_navigation_target":
+                future = runtime.pending_tool_results[call.call_id]
+            else:
+                future = runtime.pending_memory_results[call.call_id].future
             try:
                 async with asyncio.timeout(self.timeouts.tool):
-                    tool_result = await future
-                results.append(tool_result)
+                    action_result = await future
+                results.append(action_result)
             finally:
-                runtime.pending_tool_results.pop(call.call_id, None)
+                if call.name == "set_navigation_target":
+                    runtime.pending_tool_results.pop(call.call_id, None)
+                else:
+                    runtime.pending_memory_results.pop(call.call_id, None)
         return results
 
     async def _speak(self, runtime: _TurnRuntime, text: str) -> None:
@@ -386,16 +561,20 @@ class CompanionSession:
             raise ProtocolError("session_closed", "companion session is closed")
 
     def _cancel_runtime(self, runtime: _TurnRuntime) -> None:
-        self._cancel_pending_tool_results(runtime)
+        self._cancel_pending_results(runtime)
         if runtime.task is not None and not runtime.task.done():
             runtime.task.cancel()
 
     @staticmethod
-    def _cancel_pending_tool_results(runtime: _TurnRuntime) -> None:
+    def _cancel_pending_results(runtime: _TurnRuntime) -> None:
         for future in runtime.pending_tool_results.values():
             if not future.done():
                 future.cancel()
         runtime.pending_tool_results.clear()
+        for pending in runtime.pending_memory_results.values():
+            if not pending.future.done():
+                pending.future.cancel()
+        runtime.pending_memory_results.clear()
 
     def _track_background_task(self, task: asyncio.Task) -> None:
         self._background_tasks.add(task)
@@ -408,8 +587,48 @@ class CompanionSession:
         task.add_done_callback(discard)
 
 
-def _tool_result_messages(
-    llm_result: LLMResult, tool_results: list[ToolResult]
+def _normalize_memory_query_arguments(
+    name: str, arguments: dict[str, JsonValue]
+) -> dict[str, JsonValue]:
+    identifier_name: str | None = None
+    if name == "activity_for_body":
+        identifier_name = "body_id"
+    elif name == "prior_failure":
+        identifier_name = "category"
+    elif name == "journal_item_sources":
+        identifier_name = "item_id"
+
+    supports_limit = name != "journal_item_sources"
+    allowed_names = {identifier_name} if identifier_name else set()
+    if supports_limit:
+        allowed_names.add("limit")
+    if set(arguments) != set(arguments).intersection(allowed_names):
+        raise ProviderError("memory query contains unsupported arguments")
+
+    normalized: dict[str, JsonValue] = {}
+    if identifier_name is not None:
+        identifier = arguments.get(identifier_name)
+        if (
+            not isinstance(identifier, str)
+            or not identifier
+            or len(identifier.encode("utf-8")) > 128
+            or identifier.strip() != identifier
+        ):
+            raise ProviderError(f"memory query requires a valid {identifier_name}")
+        normalized[identifier_name] = identifier
+
+    if supports_limit:
+        limit = arguments.get("limit", DEFAULT_MEMORY_QUERY_LIMIT)
+        if type(limit) is not int or limit < 1 or limit > MAX_MEMORY_QUERY_LIMIT:
+            raise ProviderError(
+                f"memory query limit must be between 1 and {MAX_MEMORY_QUERY_LIMIT}"
+            )
+        normalized["limit"] = limit
+    return normalized
+
+
+def _action_result_messages(
+    llm_result: LLMResult, action_results: list[ToolResult | MemoryResult]
 ) -> list[dict]:
     assistant_tool_calls = [
         {
@@ -429,16 +648,25 @@ def _tool_result_messages(
             "tool_calls": assistant_tool_calls,
         }
     ]
-    for result in tool_results:
-        content = {
-            "ok": result.ok,
-            "result": result.result,
-            "error": result.error,
-        }
+    for result in action_results:
+        if isinstance(result, ToolResult):
+            content = {
+                "ok": result.ok,
+                "result": result.result,
+                "error": result.error,
+            }
+            result_id = result.call_id
+        else:
+            content = {
+                "ok": result.ok,
+                "records": result.records,
+                "error": result.error,
+            }
+            result_id = result.query_id
         messages.append(
             {
                 "role": "tool",
-                "tool_call_id": result.call_id,
+                "tool_call_id": result_id,
                 "content": json.dumps(content, separators=(",", ":")),
             }
         )
