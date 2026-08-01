@@ -1,10 +1,10 @@
 """Local, versioned WebSocket transport for the Salvage companion."""
 
 import asyncio
-import json
 import os
 import uuid
 from collections.abc import Callable
+from contextlib import suppress
 
 from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
@@ -15,6 +15,7 @@ from api.services.game_companion.protocol import (
     PROTOCOL_VERSION,
     AudioFormat,
     ClientMessageOrder,
+    ErrorMessage,
     Hello,
     HelloAck,
     Interrupt,
@@ -23,6 +24,7 @@ from api.services.game_companion.protocol import (
     ToolResult,
     TurnEnd,
     TurnStart,
+    decode_control_json,
     parse_client_message,
 )
 from api.services.game_companion.providers import create_openrouter_provider_set
@@ -101,6 +103,8 @@ async def serve_game_companion(
                 continue
 
             message = parse_client_message(frame)
+            if order.should_discard_retired_result(message):
+                continue
             order.accept(message)
             if isinstance(message, Hello):
                 session = session_factory(emit)
@@ -134,23 +138,29 @@ async def serve_game_companion(
     except WebSocketDisconnect:
         pass
     except ProtocolError as exc:
+        if order.active_turn_id is not None and exc.code not in _OVERSIZE_CODES:
+            await _emit_protocol_error(emit, order.active_turn_id, exc)
         close_code = 1009 if exc.code in _OVERSIZE_CODES else 1008
         await _close_socket(websocket, close_code, exc.code)
     except Exception:  # noqa: BLE001 - terminate the transport at its SDK boundary.
         await _close_socket(websocket, 1011, "companion_session_failure")
     finally:
         if session is not None:
-            await session.close()
+            with suppress(Exception):
+                await session.close()
 
 
 async def _receive_frame(websocket: WebSocket) -> object | bytes:
     event = await websocket.receive()
-    if event["type"] == "websocket.disconnect":
+    if not isinstance(event, dict):
+        raise ProtocolError("invalid_message", "invalid WebSocket event")
+    event_type = event.get("type")
+    if event_type == "websocket.disconnect":
         raise WebSocketDisconnect(
             code=event.get("code", 1000),
             reason=event.get("reason", ""),
         )
-    if event["type"] != "websocket.receive":
+    if event_type != "websocket.receive":
         raise ProtocolError("invalid_message", "invalid WebSocket event")
 
     binary = event.get("bytes")
@@ -159,19 +169,26 @@ async def _receive_frame(websocket: WebSocket) -> object | bytes:
     text = event.get("text")
     if not isinstance(text, str):
         raise ProtocolError("invalid_message", "control frame must be UTF-8 JSON")
-    if len(text.encode("utf-8")) > MAX_JSON_BYTES:
-        raise ProtocolError(
-            "message_too_large",
-            f"JSON message exceeds {MAX_JSON_BYTES} bytes",
+    return decode_control_json(text)
+
+
+async def _emit_protocol_error(
+    emit: EmitCallback,
+    turn_id: str,
+    error: ProtocolError,
+) -> None:
+    with suppress(Exception):
+        await emit(
+            ErrorMessage(
+                type="error",
+                turn_id=turn_id,
+                code=error.code,
+                message=error.message[:1024],
+                recoverable=error.recoverable,
+            )
         )
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise ProtocolError("invalid_json", "control frame is not valid JSON") from exc
 
 
 async def _close_socket(websocket: WebSocket, code: int, reason: str) -> None:
-    try:
+    with suppress(Exception):
         await websocket.close(code=code, reason=reason)
-    except RuntimeError:
-        pass

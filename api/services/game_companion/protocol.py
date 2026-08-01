@@ -21,6 +21,7 @@ MAX_CONTEXT_BYTES = 16 * 1024
 MAX_BINARY_FRAME_BYTES = 64 * 1024
 MAX_TURN_AUDIO_BYTES = 16 * 1024 * 1024
 MAX_TEXT_LENGTH = 4096
+MAX_RETIRED_TURN_IDS = 64
 
 Identifier = Annotated[
     str,
@@ -71,7 +72,12 @@ class TurnStart(TurnMessage):
     @field_validator("context")
     @classmethod
     def context_is_bounded(cls, value: dict[str, JsonValue]):
-        encoded = json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode()
+        encoded = json.dumps(
+            value,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode()
         if len(encoded) > MAX_CONTEXT_BYTES:
             raise ValueError(f"context exceeds {MAX_CONTEXT_BYTES} bytes")
         return value
@@ -239,9 +245,14 @@ def _parse_message(
 
     try:
         encoded_size = len(
-            json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
+            json.dumps(
+                payload,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            ).encode()
         )
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
         raise ProtocolError(
             "invalid_message", "message must contain JSON values"
         ) from exc
@@ -290,6 +301,39 @@ def parse_server_message(payload: object) -> ServerMessage:
     )
 
 
+def decode_control_json(text: str) -> object:
+    """Decode one bounded, strict UTF-8 JSON control frame."""
+    try:
+        encoded_size = len(text.encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        raise ProtocolError("invalid_utf8", "control frame is not valid UTF-8") from exc
+    if encoded_size > MAX_JSON_BYTES:
+        raise ProtocolError(
+            "message_too_large", f"JSON message exceeds {MAX_JSON_BYTES} bytes"
+        )
+    try:
+        return json.loads(
+            text,
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except (json.JSONDecodeError, ValueError, RecursionError) as exc:
+        raise ProtocolError("invalid_json", "control frame is not valid JSON") from exc
+
+
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON object key")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"invalid JSON constant: {value}")
+
+
 class ClientMessageOrder:
     """Validate connection-level JSON and binary frame ordering."""
 
@@ -298,6 +342,17 @@ class ClientMessageOrder:
         self.active_turn_id: str | None = None
         self.input_open = False
         self.turn_audio_bytes = 0
+        self._retired_turn_ids: list[str] = []
+
+    @property
+    def retired_turn_count(self) -> int:
+        return len(self._retired_turn_ids)
+
+    def should_discard_retired_result(self, message: ClientMessage) -> bool:
+        return (
+            isinstance(message, (ToolResult, MemoryResult))
+            and message.turn_id in self._retired_turn_ids
+        )
 
     def accept(self, message: ClientMessage) -> str | None:
         if isinstance(message, Hello):
@@ -314,7 +369,13 @@ class ClientMessageOrder:
                 raise ProtocolError(
                     "invalid_turn_order", "turn_start repeated the active turn_id"
                 )
+            if message.turn_id in self._retired_turn_ids:
+                raise ProtocolError(
+                    "invalid_turn_order", "turn_start cannot reuse a retired turn_id"
+                )
             interrupted_turn_id = self.active_turn_id
+            if interrupted_turn_id is not None:
+                self._retire_turn(interrupted_turn_id)
             self.active_turn_id = message.turn_id
             self.input_open = True
             self.turn_audio_bytes = 0
@@ -329,6 +390,7 @@ class ClientMessageOrder:
                 )
             self.input_open = False
         elif isinstance(message, Interrupt):
+            self._retire_turn(message.turn_id)
             self.active_turn_id = None
             self.input_open = False
             self.turn_audio_bytes = 0
@@ -361,6 +423,17 @@ class ClientMessageOrder:
                 "turn_audio_too_large",
                 f"turn audio exceeds {MAX_TURN_AUDIO_BYTES} bytes",
             )
+
+    def _retire_turn(self, turn_id: str) -> None:
+        if turn_id in self._retired_turn_ids:
+            return
+        if len(self._retired_turn_ids) >= MAX_RETIRED_TURN_IDS:
+            raise ProtocolError(
+                "turn_history_exhausted",
+                "turn ownership history is full; reconnect before starting another turn",
+                recoverable=True,
+            )
+        self._retired_turn_ids.append(turn_id)
 
     def _require_active_turn(self, turn_id: str) -> None:
         if self.active_turn_id is None:
