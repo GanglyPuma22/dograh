@@ -1,0 +1,35 @@
+services:
+  postgres:
+    ports: !override
+      - "127.0.0.1:5432:5432"
+
+  redis:
+    ports: !override
+      - "127.0.0.1:6379:6379"
+
+  cloudflared:
+    profiles: ["remote"]
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    image: dograh-api:salvage-local
+    environment:
+      DOGRAH_GAME_COMPANION_ENABLED: "${DOGRAH_GAME_COMPANION_ENABLED:-0}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      OPENROUTER_BASE_URL: "${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
+      DOGRAH_GAME_COMPANION_LLM_MODEL: "${DOGRAH_GAME_COMPANION_LLM_MODEL:-deepseek/deepseek-v4-flash}"
+      DOGRAH_GAME_COMPANION_STT_MODEL: "${DOGRAH_GAME_COMPANION_STT_MODEL:-qwen/qwen3-asr-flash-2026-02-10}"
+      DOGRAH_GAME_COMPANION_TTS_MODEL: "${DOGRAH_GAME_COMPANION_TTS_MODEL:-x-ai/grok-voice-tts-1.0}"
+      DOGRAH_GAME_COMPANION_TTS_VOICE: "${DOGRAH_GAME_COMPANION_TTS_VOICE:-eve}"
+      ENABLE_TELEMETRY: "false"
+    ports: !override
+      - "127.0.0.1:8000:8000"
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy

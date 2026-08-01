@@ -1,0 +1,180 @@
+"""Local, versioned WebSocket transport for the Salvage companion."""
+
+import asyncio
+import json
+import os
+import uuid
+from collections.abc import Callable
+
+from fastapi import APIRouter, WebSocket
+from starlette.websockets import WebSocketDisconnect
+
+from api.services.game_companion.protocol import (
+    MAX_BINARY_FRAME_BYTES,
+    MAX_JSON_BYTES,
+    PROTOCOL_VERSION,
+    AudioFormat,
+    ClientMessageOrder,
+    Hello,
+    HelloAck,
+    Interrupt,
+    MemoryResult,
+    ProtocolError,
+    ToolResult,
+    TurnEnd,
+    TurnStart,
+    parse_client_message,
+)
+from api.services.game_companion.providers import create_openrouter_provider_set
+from api.services.game_companion.session import (
+    CompanionSession,
+    EmitCallback,
+    OutboundEvent,
+)
+
+router = APIRouter(prefix="/game-companion")
+SessionFactory = Callable[[EmitCallback], CompanionSession]
+_OVERSIZE_CODES = {
+    "message_too_large",
+    "audio_frame_too_large",
+    "turn_audio_too_large",
+}
+
+
+def create_companion_session(emit: EmitCallback) -> CompanionSession:
+    return CompanionSession(providers=create_openrouter_provider_set(), emit=emit)
+
+
+@router.websocket("/ws")
+async def game_companion_websocket(websocket: WebSocket) -> None:
+    if os.getenv("DOGRAH_GAME_COMPANION_ENABLED") != "1":
+        await websocket.close(code=1008, reason="game_companion_disabled")
+        return
+    await serve_game_companion(
+        websocket,
+        session_factory=create_companion_session,
+    )
+
+
+async def serve_game_companion(
+    websocket: WebSocket,
+    *,
+    session_factory: SessionFactory,
+) -> None:
+    order = ClientMessageOrder()
+    session: CompanionSession | None = None
+    send_lock = asyncio.Lock()
+
+    async def emit(event: OutboundEvent) -> None:
+        async with send_lock:
+            if isinstance(event, bytes):
+                if not event:
+                    raise ProtocolError(
+                        "invalid_audio_frame", "outbound binary frame is empty"
+                    )
+                if len(event) > MAX_BINARY_FRAME_BYTES:
+                    raise ProtocolError(
+                        "audio_frame_too_large",
+                        f"outbound binary frame exceeds {MAX_BINARY_FRAME_BYTES} bytes",
+                    )
+                await websocket.send_bytes(event)
+                return
+            encoded = event.model_dump_json()
+            if len(encoded.encode("utf-8")) > MAX_JSON_BYTES:
+                raise ProtocolError(
+                    "message_too_large",
+                    f"outbound JSON exceeds {MAX_JSON_BYTES} bytes",
+                )
+            await websocket.send_text(encoded)
+
+    await websocket.accept()
+    try:
+        while True:
+            frame = await _receive_frame(websocket)
+            if isinstance(frame, bytes):
+                order.accept_binary(len(frame))
+                if session is None or order.active_turn_id is None:
+                    raise ProtocolError(
+                        "hello_required", "hello must precede binary audio"
+                    )
+                await session.append_audio(order.active_turn_id, frame)
+                continue
+
+            message = parse_client_message(frame)
+            order.accept(message)
+            if isinstance(message, Hello):
+                session = session_factory(emit)
+                await emit(
+                    HelloAck(
+                        type="hello_ack",
+                        protocol_version=PROTOCOL_VERSION,
+                        session_id=str(uuid.uuid4()),
+                        companion="Aster",
+                        audio=AudioFormat(
+                            sample_rate=16000,
+                            channels=1,
+                            format="pcm_s16le",
+                        ),
+                    )
+                )
+                continue
+
+            if session is None:
+                raise ProtocolError("hello_required", "hello must be the first frame")
+            if isinstance(message, TurnStart):
+                await session.start_turn(message.turn_id, message.context)
+            elif isinstance(message, TurnEnd):
+                await session.end_turn(message.turn_id)
+            elif isinstance(message, Interrupt):
+                await session.interrupt(message.turn_id)
+            elif isinstance(message, ToolResult):
+                await session.submit_tool_result(message)
+            elif isinstance(message, MemoryResult):
+                raise ProtocolError(
+                    "unexpected_memory_result",
+                    "memory results are not enabled in this milestone",
+                )
+    except WebSocketDisconnect:
+        pass
+    except ProtocolError as exc:
+        close_code = 1009 if exc.code in _OVERSIZE_CODES else 1008
+        await _close_socket(websocket, close_code, exc.code)
+    except Exception:  # noqa: BLE001 - terminate the transport at its SDK boundary.
+        await _close_socket(websocket, 1011, "companion_session_failure")
+    finally:
+        if session is not None:
+            await session.close()
+
+
+async def _receive_frame(websocket: WebSocket) -> object | bytes:
+    event = await websocket.receive()
+    if event["type"] == "websocket.disconnect":
+        raise WebSocketDisconnect(
+            code=event.get("code", 1000),
+            reason=event.get("reason", ""),
+        )
+    if event["type"] != "websocket.receive":
+        raise ProtocolError("invalid_message", "invalid WebSocket event")
+
+    binary = event.get("bytes")
+    if binary is not None:
+        return binary
+    text = event.get("text")
+    if not isinstance(text, str):
+        raise ProtocolError("invalid_message", "control frame must be UTF-8 JSON")
+    if len(text.encode("utf-8")) > MAX_JSON_BYTES:
+        raise ProtocolError(
+            "message_too_large",
+            f"JSON message exceeds {MAX_JSON_BYTES} bytes",
+        )
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ProtocolError("invalid_json", "control frame is not valid JSON") from exc
+
+
+async def _close_socket(websocket: WebSocket, code: int, reason: str) -> None:
+    try:
+        await websocket.close(code=code, reason=reason)
+    except RuntimeError:
+        pass
