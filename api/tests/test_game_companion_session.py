@@ -364,6 +364,7 @@ async def test_tool_call_pauses_final_narration_until_typed_result():
     ("name", "arguments"),
     [
         ("recent_activity", {"limit": 10}),
+        ("recent_journal_items", {"limit": 10}),
         ("activity_for_body", {"body_id": "planet_01_moon", "limit": 8}),
         ("unresolved_incidents", {"limit": 5}),
         ("prior_failure", {"category": "landing", "limit": 3}),
@@ -443,6 +444,7 @@ async def test_registered_memory_query_pauses_interpretation_until_typed_result(
     ("name", "arguments", "expected_arguments"),
     [
         ("recent_activity", {}, {"limit": 10}),
+        ("recent_journal_items", {}, {"limit": 10}),
         (
             "activity_for_body",
             {"body_id": "planet_01_moon"},
@@ -498,6 +500,9 @@ async def test_memory_queries_materialize_default_limits(
         ("recent_activity", {"limit": 21}),
         ("recent_activity", {"limit": True}),
         ("recent_activity", {"limit": 1, "extra": "not allowed"}),
+        ("recent_journal_items", {"limit": 0}),
+        ("recent_journal_items", {"limit": 21}),
+        ("recent_journal_items", {"kind": "fact"}),
         ("activity_for_body", {"limit": 1}),
         ("activity_for_body", {"body_id": " planet_01", "limit": 1}),
         ("activity_for_body", {"body_id": "\U0001f30c" * 33, "limit": 1}),
@@ -1160,6 +1165,9 @@ def test_aster_prompt_does_not_claim_unknown_game_facts():
     assert "navigable_bodies" in prompt
     assert "aliases" in prompt
     assert "canonical body_id" in prompt
+    assert "recent_journal_items" in prompt
+    assert "canonical_episode" in prompt
+    assert "companion_analysis" in prompt
     assert "you are currently" not in prompt
     assert "your ship is" not in prompt
     assert "companion analysis" in prompt

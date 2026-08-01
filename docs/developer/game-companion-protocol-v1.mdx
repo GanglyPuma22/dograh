@@ -67,6 +67,12 @@ Tool and memory requests are names from the versioned allowlist. Salvage
 validates every request and returns a typed `tool_result` or `memory_result`.
 The only mutating v1 tool is `set_navigation_target(body_id)`.
 
+The bounded memory-query allowlist is `recent_activity(limit)`,
+`recent_journal_items(limit)`, `activity_for_body(body_id, limit)`,
+`unresolved_incidents(limit)`, `prior_failure(category, limit)`, and
+`journal_item_sources(item_id)`. Journal results preserve provenance labels and
+source event IDs; Companion Analysis remains noncanonical interpretation.
+
 Companion journal interpretation uses `annotation_proposal`. A proposal cites
 existing source event IDs and cannot mutate canonical ledger events.
 
