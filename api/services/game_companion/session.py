@@ -12,6 +12,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from loguru import logger
 from pydantic import JsonValue
 
 from api.services.game_companion.persona import (
@@ -46,6 +47,8 @@ from api.services.game_companion.providers import (
 
 OutboundEvent = ServerMessage | bytes
 EmitCallback = Callable[[OutboundEvent], Awaitable[None]]
+MetricValue = str | int | float | bool
+MetricCallback = Callable[[str, dict[str, MetricValue]], None]
 
 MAX_MEMORY_QUERY_LIMIT = 20
 DEFAULT_MEMORY_QUERY_LIMIT = 10
@@ -261,7 +264,9 @@ class ProviderTimeouts:
 @dataclass(frozen=True, slots=True)
 class _PendingMemoryResult:
     future: asyncio.Future[MemoryResult]
+    name: str
     max_records: int
+    started_at: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,6 +292,7 @@ class _TurnRuntime:
     analysis_records: list[dict[str, JsonValue]] = field(default_factory=list)
     analysis_event_ids: set[str] = field(default_factory=set)
     analysis_attempted: bool = False
+    processing_started_at: float = 0.0
 
 
 class CompanionSession:
@@ -301,6 +307,7 @@ class CompanionSession:
         input_sample_rate: int = 16000,
         annotation_cooldown_seconds: float = DEFAULT_ANNOTATION_COOLDOWN_SECONDS,
         monotonic: Callable[[], float] = time.monotonic,
+        metric: MetricCallback | None = None,
         proposal_id_factory: Callable[[], str] | None = None,
     ):
         if annotation_cooldown_seconds < 0:
@@ -313,6 +320,7 @@ class CompanionSession:
         self.cancelled_turn_ids: deque[str] = deque(maxlen=MAX_CANCELLED_TURN_IDS)
         self._emit_callback = emit
         self._monotonic = monotonic
+        self._metric = metric or _log_session_metric
         self._proposal_id_factory = proposal_id_factory or (lambda: str(uuid.uuid4()))
         self._last_annotation_at: float | None = None
         self._generation = 0
@@ -427,6 +435,15 @@ class CompanionSession:
             )
         if result.ok:
             _remember_analysis_records(runtime, result.records)
+        logger.info(
+            "Game companion memory result: name={} ok={} records={} error={} "
+            "elapsed_ms={:.1f}",
+            pending.name,
+            result.ok,
+            len(result.records),
+            result.error or "none",
+            (self._monotonic() - pending.started_at) * 1000.0,
+        )
         pending.future.set_result(result)
 
     async def interrupt(self, turn_id: str) -> None:
@@ -453,14 +470,21 @@ class CompanionSession:
 
     async def _run_turn(self, runtime: _TurnRuntime) -> None:
         try:
+            runtime.processing_started_at = self._monotonic()
             wav_audio = pcm_s16le_to_wav(
                 bytes(runtime.audio),
                 sample_rate=self.input_sample_rate,
                 channels=1,
             )
             runtime.audio.clear()
+            stt_started_at = self._monotonic()
             async with asyncio.timeout(self.timeouts.stt):
                 transcript = await self.providers.stt.transcribe(wav_audio)
+            self._record_metric(
+                "stt_complete",
+                runtime,
+                elapsed_ms=_elapsed_ms(stt_started_at, self._monotonic()),
+            )
             if not self._owns(runtime):
                 return
             if not await self._emit(
@@ -517,14 +541,35 @@ class CompanionSession:
     async def _respond_with_tools(
         self, runtime: _TurnRuntime, messages: list[dict]
     ) -> str:
-        for _ in range(4):
+        sequence_started_at = self._monotonic()
+        provider_elapsed_ms = 0.0
+        for round_index in range(4):
+            round_started_at = self._monotonic()
             async with asyncio.timeout(self.timeouts.llm):
                 result = await self.providers.llm.respond(
                     messages, ASTER_TOOLS + MEMORY_QUERY_TOOLS
                 )
+            round_elapsed_ms = _elapsed_ms(round_started_at, self._monotonic())
+            provider_elapsed_ms += round_elapsed_ms
+            self._record_metric(
+                "llm_round_complete",
+                runtime,
+                round=round_index + 1,
+                elapsed_ms=round_elapsed_ms,
+                tool_calls=len(result.tool_calls),
+            )
             if not self._owns(runtime):
                 return ""
             if not result.tool_calls:
+                self._record_metric(
+                    "llm_complete",
+                    runtime,
+                    rounds=round_index + 1,
+                    provider_elapsed_ms=provider_elapsed_ms,
+                    orchestration_elapsed_ms=_elapsed_ms(
+                        sequence_started_at, self._monotonic()
+                    ),
+                )
                 return result.text.strip()
             action_results = await self._request_actions(runtime, result)
             messages.extend(_action_result_messages(result, action_results))
@@ -598,7 +643,9 @@ class CompanionSession:
                 memory_arguments[call.call_id] = arguments
                 runtime.pending_memory_results[call.call_id] = _PendingMemoryResult(
                     future=loop.create_future(),
+                    name=call.name,
                     max_records=arguments.get("limit", MAX_MEMORY_QUERY_LIMIT),
+                    started_at=self._monotonic(),
                 )
             else:
                 raise ProviderError("OpenRouter LLM requested an unregistered tool")
@@ -613,6 +660,11 @@ class CompanionSession:
                     arguments=tool_arguments[call.call_id],
                 )
             else:
+                logger.info(
+                    "Game companion memory query: name={} limit={}",
+                    call.name,
+                    memory_arguments[call.call_id].get("limit", "none"),
+                )
                 event = MemoryQuery(
                     type="memory_query",
                     turn_id=runtime.turn_id,
@@ -661,6 +713,7 @@ class CompanionSession:
         first_chunk: PCMChunk | None = None
         audio_open = False
         output_audio_bytes = 0
+        tts_started_at = self._monotonic()
         try:
             async with asyncio.timeout(self.timeouts.tts):
                 async for chunk in self.providers.tts.synthesize(text):
@@ -671,6 +724,15 @@ class CompanionSession:
                     if next_audio_bytes > MAX_OUTPUT_AUDIO_BYTES:
                         raise ProviderError("TTS PCM response is too large")
                     if first_chunk is None:
+                        first_audio_at = self._monotonic()
+                        self._record_metric(
+                            "first_audio",
+                            runtime,
+                            tts_elapsed_ms=_elapsed_ms(tts_started_at, first_audio_at),
+                            turn_elapsed_ms=_elapsed_ms(
+                                runtime.processing_started_at, first_audio_at
+                            ),
+                        )
                         if not await self._emit(
                             runtime,
                             AudioStart(
@@ -697,6 +759,12 @@ class CompanionSession:
 
             if first_chunk is None:
                 raise ProviderError("OpenRouter TTS returned no audio")
+            self._record_metric(
+                "tts_complete",
+                runtime,
+                elapsed_ms=_elapsed_ms(tts_started_at, self._monotonic()),
+                pcm_bytes=output_audio_bytes,
+            )
         finally:
             if audio_open and self._owns(runtime):
                 await self._emit(
@@ -742,6 +810,18 @@ class CompanionSession:
             and self._active is runtime
             and self._generation == runtime.generation
         )
+
+    def _record_metric(
+        self,
+        event: str,
+        runtime: _TurnRuntime,
+        **fields: MetricValue,
+    ) -> None:
+        values: dict[str, MetricValue] = {"turn_id": runtime.turn_id, **fields}
+        try:
+            self._metric(event, values)
+        except Exception:  # noqa: BLE001 - metrics cannot break a voice turn.
+            logger.warning("Game companion metric sink failed: event={}", event)
 
     def _require_active(self, turn_id: str) -> _TurnRuntime:
         self._require_open()
@@ -1220,3 +1300,15 @@ def _action_result_messages(
             }
         )
     return messages
+
+
+def _elapsed_ms(started_at: float, completed_at: float) -> float:
+    return max((completed_at - started_at) * 1000.0, 0.0)
+
+
+def _log_session_metric(event: str, fields: dict[str, MetricValue]) -> None:
+    logger.info(
+        "Game companion metric: event={} fields={}",
+        event,
+        json.dumps(fields, separators=(",", ":"), sort_keys=True),
+    )

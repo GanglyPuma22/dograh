@@ -205,6 +205,49 @@ async def test_close_releases_provider_resources_once():
     assert tts.close_calls == 1
 
 
+async def test_session_emits_separate_content_free_stage_metrics():
+    class StepClock:
+        def __init__(self):
+            self.value = 0.0
+
+        def __call__(self):
+            self.value += 0.01
+            return self.value
+
+    metrics = []
+    session = CompanionSession(
+        providers=fake_providers(),
+        monotonic=StepClock(),
+        metric=lambda event, fields: metrics.append((event, fields)),
+    )
+
+    await session.start_turn("turn-metrics", {})
+    await session.append_audio("turn-metrics", b"\x00\x00")
+    await session.end_turn("turn-metrics")
+    await session.wait_for_turn("turn-metrics")
+
+    events = [event for event, _fields in metrics]
+    assert events == [
+        "stt_complete",
+        "llm_round_complete",
+        "llm_complete",
+        "first_audio",
+        "tts_complete",
+    ]
+    first_audio = dict(metrics)["first_audio"]
+    assert first_audio["tts_elapsed_ms"] > 0
+    assert first_audio["turn_elapsed_ms"] > first_audio["tts_elapsed_ms"]
+    tts = dict(metrics)["tts_complete"]
+    assert tts["pcm_bytes"] == 4
+    assert tts["elapsed_ms"] >= first_audio["tts_elapsed_ms"]
+    serialized = json.dumps(metrics)
+    assert "Take me to the moon" not in serialized
+    assert "Setting a course" not in serialized
+    assert "transcript" not in serialized
+    assert "response_text" not in serialized
+    await session.close()
+
+
 class CancellationIgnoringSTT:
     def __init__(self):
         self.started = asyncio.Event()
