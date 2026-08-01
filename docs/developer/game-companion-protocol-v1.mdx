@@ -1,0 +1,92 @@
+---
+title: Game companion protocol v1
+description: WebSocket control and PCM framing contract for an embedded game companion.
+---
+
+The game companion protocol connects a local game client to Dograh over one
+loopback WebSocket. Salvage owns gameplay authority and persistent memory;
+Dograh owns speech recognition, language generation, speech synthesis, and turn
+orchestration.
+
+## Endpoint
+
+Connect to:
+
+```text
+ws://127.0.0.1:8000/api/v1/game-companion/ws
+```
+
+Send a `hello` JSON frame before any other frame:
+
+```json
+{
+  "type": "hello",
+  "protocol_version": 1,
+  "client": "salvage",
+  "save_id": "phase_2_prototype",
+  "capabilities": ["pcm_s16le", "captions", "tools", "memory"]
+}
+```
+
+Dograh acknowledges the connection and negotiates input audio:
+
+```json
+{
+  "type": "hello_ack",
+  "protocol_version": 1,
+  "session_id": "uuid",
+  "companion": "Aster",
+  "audio": {"sample_rate": 16000, "channels": 1, "format": "pcm_s16le"}
+}
+```
+
+## Turn framing
+
+For each input turn, send `turn_start`, zero or more binary PCM frames, and
+`turn_end` in that order. PCM frames contain headerless signed 16-bit
+little-endian mono samples at the negotiated input rate.
+
+```json
+{"type":"turn_start","turn_id":"uuid","context":{}}
+```
+
+```json
+{"type":"turn_end","turn_id":"uuid"}
+```
+
+A new `turn_start` interrupts provider work for the prior active turn. Send an
+explicit `interrupt` to stop an active response without starting its replacement
+in the same frame.
+
+## Server output
+
+Dograh emits turn-scoped `state` and `caption` frames. Spoken responses are
+framed by `audio_start`, ordered binary PCM frames, and `audio_end`.
+
+Tool and memory requests are names from the versioned allowlist. Salvage
+validates every request and returns a typed `tool_result` or `memory_result`.
+The only mutating v1 tool is `set_navigation_target(body_id)`.
+
+Companion journal interpretation uses `annotation_proposal`. A proposal cites
+existing source event IDs and cannot mutate canonical ledger events.
+
+## Validation and limits
+
+- Every control frame has a `type`; turn-scoped frames have a `turn_id`.
+- Protocol versions other than `1` and unknown message types are rejected.
+- Unknown fields are ignored for forward-compatible minor additions.
+- JSON control frames are limited to 64 KiB.
+- A binary audio frame is limited to 64 KiB and a turn to 16 MiB.
+- Captions are limited to 4,096 characters and context to 16 KiB encoded JSON.
+- Binary data outside an open input or output audio sequence is rejected.
+
+Protocol errors use an `error` frame with a stable `code`, a bounded `message`,
+and a `recoverable` flag. A malformed connection is closed without affecting
+gameplay.
+
+## Privacy and authority
+
+Do not persist microphone audio or conversation transcripts. Salvage exposes
+only a sanitized semantic context snapshot and bounded memory query results.
+Dograh never receives scene-tree objects, raw telemetry streams, save files, or
+direct access to gameplay nodes.
