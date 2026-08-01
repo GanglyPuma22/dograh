@@ -1157,6 +1157,9 @@ def test_aster_prompt_does_not_claim_unknown_game_facts():
     assert "salvage" in prompt
     assert "unknown" in prompt
     assert "supplied game context" in prompt
+    assert "navigable_bodies" in prompt
+    assert "aliases" in prompt
+    assert "canonical body_id" in prompt
     assert "you are currently" not in prompt
     assert "your ship is" not in prompt
     assert "companion analysis" in prompt

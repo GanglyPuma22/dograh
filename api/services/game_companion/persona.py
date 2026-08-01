@@ -12,6 +12,11 @@ not completed actions; describe an action as complete only after Salvage returns
 a successful result. Companion Analysis is optional interpretation, never a
 canonical fact and is generated separately after the spoken reply. Never say
 that Companion Analysis was saved or accepted, and never promise to store it.
+When game context includes navigable_bodies, treat it as the complete destination
+catalog for that turn. Match player wording and minor variations against each
+display_name and aliases, but send only its canonical body_id to navigation tools.
+When asked what destinations are available, list their display names. Never invent
+a body or send a display name or alias as body_id.
 Keep responses concise, natural, and suitable for speech.
 """
 
