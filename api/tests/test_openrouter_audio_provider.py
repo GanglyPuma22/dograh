@@ -134,7 +134,7 @@ def test_create_openrouter_tts_service_uses_openrouter_base_url_and_speed():
 
 
 @pytest.mark.asyncio
-async def test_openrouter_tts_requests_mp3_and_yields_pcm(monkeypatch):
+async def test_openrouter_tts_streams_pcm_before_response_completes():
     service = OpenRouterTTSService(
         api_key="sk-or-v1-test",
         base_url="https://openrouter.ai/api/v1",
@@ -150,6 +150,9 @@ async def test_openrouter_tts_requests_mp3_and_yields_pcm(monkeypatch):
     class FakeResponse:
         status_code = 200
 
+        def __init__(self):
+            self.finished = False
+
         async def __aenter__(self):
             return self
 
@@ -157,15 +160,16 @@ async def test_openrouter_tts_requests_mp3_and_yields_pcm(monkeypatch):
             return None
 
         async def iter_bytes(self, chunk_size):
-            yield b"mp3-bytes"
+            yield b"\x01\x02"
+            yield b"\x03"
+            yield b"\x04"
+            self.finished = True
+
+    response = FakeResponse()
 
     def fake_create(**kwargs):
         calls.append(kwargs)
-        return FakeResponse()
-
-    async def fake_convert(audio, target_sample_rate):
-        calls.append({"audio": audio, "target_sample_rate": target_sample_rate})
-        return b"\x01\x02\x03\x04"
+        return response
 
     service._client = SimpleNamespace(
         audio=SimpleNamespace(
@@ -174,27 +178,21 @@ async def test_openrouter_tts_requests_mp3_and_yields_pcm(monkeypatch):
             )
         )
     )
-    monkeypatch.setattr(
-        "api.services.pipecat.service_factory._convert_audio_bytes_to_pcm",
-        fake_convert,
+    frames = service.run_tts(
+        "OpenRouter audio smoke test.",
+        "ctx-openrouter",
     )
-
-    frames = [
-        frame
-        async for frame in service.run_tts(
-            "OpenRouter audio smoke test.",
-            "ctx-openrouter",
-        )
-    ]
+    first_frame = await anext(frames)
 
     assert calls[0]["model"] == "x-ai/grok-voice-tts-1.0"
     assert calls[0]["voice"] == "default"
-    assert calls[0]["response_format"] == "mp3"
-    assert calls[1] == {
-        "audio": b"mp3-bytes",
-        "target_sample_rate": 24000,
-    }
-    assert len(frames) == 1
-    assert isinstance(frames[0], TTSAudioRawFrame)
-    assert frames[0].audio == b"\x01\x02\x03\x04"
-    assert frames[0].sample_rate == 24000
+    assert calls[0]["response_format"] == "pcm"
+    assert response.finished is False
+    assert isinstance(first_frame, TTSAudioRawFrame)
+    assert first_frame.audio == b"\x01\x02"
+    assert first_frame.sample_rate == 24000
+
+    remaining_frames = [frame async for frame in frames]
+
+    assert response.finished is True
+    assert [frame.audio for frame in remaining_frames] == [b"\x03\x04"]

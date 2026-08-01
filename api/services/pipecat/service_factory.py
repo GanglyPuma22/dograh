@@ -1,5 +1,3 @@
-import asyncio
-import shutil
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode, urlparse, urlunparse
 
@@ -89,49 +87,8 @@ class OpenRouterSTTService(OpenAISTTService):
         )
 
 
-async def _convert_audio_bytes_to_pcm(
-    audio: bytes,
-    target_sample_rate: int,
-) -> bytes | None:
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        logger.error("ffmpeg not found on PATH - cannot decode OpenRouter TTS audio")
-        return None
-
-    proc = await asyncio.create_subprocess_exec(
-        ffmpeg,
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-i",
-        "pipe:0",
-        "-f",
-        "s16le",
-        "-acodec",
-        "pcm_s16le",
-        "-ac",
-        "1",
-        "-ar",
-        str(target_sample_rate),
-        "pipe:1",
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await proc.communicate(audio)
-
-    if proc.returncode != 0:
-        logger.error(f"ffmpeg failed decoding OpenRouter TTS audio: {stderr.decode()}")
-        return None
-    if not stdout:
-        logger.error("ffmpeg produced no PCM output for OpenRouter TTS audio")
-        return None
-
-    return stdout
-
-
 class OpenRouterTTSService(OpenAITTSService):
-    """OpenRouter TTS adapter that decodes provider MP3 output to Pipecat PCM frames."""
+    """OpenRouter TTS adapter that streams provider PCM into Pipecat frames."""
 
     async def run_tts(self, text: str, context_id: str):
         voice = self._settings.voice
@@ -148,7 +105,7 @@ class OpenRouterTTSService(OpenAITTSService):
                 "input": text,
                 "model": self._settings.model,
                 "voice": voice,
-                "response_format": "mp3",
+                "response_format": "pcm",
             }
 
             if self._settings.instructions:
@@ -173,31 +130,35 @@ class OpenRouterTTSService(OpenAITTSService):
                     return
 
                 await self.start_tts_usage_metrics(text)
-                encoded_audio = bytearray()
                 chunk_size = self.chunk_size or 8192
-                async for chunk in response.iter_bytes(chunk_size):
-                    if chunk:
-                        encoded_audio.extend(chunk)
-
                 target_sample_rate = self.sample_rate or 24000
-                pcm_audio = await _convert_audio_bytes_to_pcm(
-                    bytes(encoded_audio),
-                    target_sample_rate,
-                )
-                if not pcm_audio:
-                    yield ErrorFrame(error="Failed to decode OpenRouter TTS audio")
-                    return
+                sample_remainder = b""
+                emitted_audio = False
+                async for chunk in response.iter_bytes(chunk_size):
+                    if not chunk:
+                        continue
+                    sample_bytes = sample_remainder + chunk
+                    complete_size = len(sample_bytes) - (len(sample_bytes) % 2)
+                    sample_remainder = sample_bytes[complete_size:]
+                    complete_samples = sample_bytes[:complete_size]
+                    if not complete_samples:
+                        continue
+                    if not emitted_audio:
+                        await self.stop_ttfb_metrics()
+                        emitted_audio = True
+                    yield TTSAudioRawFrame(
+                        complete_samples,
+                        target_sample_rate,
+                        1,
+                        context_id=context_id,
+                    )
 
-                await self.stop_ttfb_metrics()
-                for offset in range(0, len(pcm_audio), chunk_size):
-                    chunk = pcm_audio[offset : offset + chunk_size]
-                    if chunk:
-                        yield TTSAudioRawFrame(
-                            chunk,
-                            target_sample_rate,
-                            1,
-                            context_id=context_id,
-                        )
+                if sample_remainder:
+                    yield ErrorFrame(
+                        error="OpenRouter TTS returned incomplete PCM audio"
+                    )
+                elif not emitted_audio:
+                    yield ErrorFrame(error="OpenRouter TTS returned no PCM audio")
         except Exception as e:
             yield ErrorFrame(error=f"Unknown error occurred: {e}")
 
