@@ -2,18 +2,24 @@
 
 import asyncio
 import json
+import math
+import time
+import uuid
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from pydantic import JsonValue
 
 from api.services.game_companion.persona import (
     ASTER_TOOLS,
+    build_analysis_messages,
     build_turn_messages,
 )
 from api.services.game_companion.protocol import (
     MAX_TURN_AUDIO_BYTES,
+    AnnotationProposal,
     AudioEnd,
     AudioStart,
     Caption,
@@ -39,6 +45,43 @@ EmitCallback = Callable[[OutboundEvent], Awaitable[None]]
 
 MAX_MEMORY_QUERY_LIMIT = 20
 DEFAULT_MEMORY_QUERY_LIMIT = 10
+DEFAULT_ANNOTATION_COOLDOWN_SECONDS = 60.0
+MAX_ANALYSIS_RECORDS = 20
+MAX_ANALYSIS_CONTEXT_BYTES = 32 * 1024
+MAX_ANALYSIS_RESPONSE_BYTES = 16 * 1024
+MAX_ANNOTATION_SUMMARY_BYTES = 512
+MAX_ANNOTATION_TAG_BYTES = 64
+MAX_IDENTIFIER_BYTES = 128
+CANONICAL_MEMORY_KEYS = (
+    "schema_version",
+    "event_id",
+    "event_type",
+    "occurred_at_utc",
+    "game_time",
+    "body_id",
+    "importance",
+    "status",
+    "summary",
+)
+CANONICAL_MEMORY_DETAIL_KEYS = frozenset(
+    {
+        "attempt_id",
+        "authority",
+        "category",
+        "current_body_id",
+        "from_authority",
+        "from_body_id",
+        "incident_id",
+        "navigation_state",
+        "previous_body_id",
+        "reason_code",
+        "recovery_reason",
+        "session_id",
+        "target_body_id",
+        "to_authority",
+        "to_body_id",
+    }
+)
 MEMORY_QUERY_NAMES = frozenset(
     {
         "recent_activity",
@@ -180,6 +223,9 @@ class _TurnRuntime:
         default_factory=dict
     )
     used_action_ids: set[str] = field(default_factory=set)
+    analysis_records: list[dict[str, JsonValue]] = field(default_factory=list)
+    analysis_event_ids: set[str] = field(default_factory=set)
+    analysis_attempted: bool = False
 
 
 class CompanionSession:
@@ -192,13 +238,22 @@ class CompanionSession:
         emit: EmitCallback | None = None,
         timeouts: ProviderTimeouts | None = None,
         input_sample_rate: int = 16000,
+        annotation_cooldown_seconds: float = DEFAULT_ANNOTATION_COOLDOWN_SECONDS,
+        monotonic: Callable[[], float] = time.monotonic,
+        proposal_id_factory: Callable[[], str] | None = None,
     ):
+        if annotation_cooldown_seconds < 0:
+            raise ValueError("annotation_cooldown_seconds cannot be negative")
         self.providers = providers
         self.timeouts = timeouts or ProviderTimeouts()
         self.input_sample_rate = input_sample_rate
+        self.annotation_cooldown_seconds = annotation_cooldown_seconds
         self.outbound_events: list[OutboundEvent] = []
         self.cancelled_turn_ids: list[str] = []
         self._emit_callback = emit
+        self._monotonic = monotonic
+        self._proposal_id_factory = proposal_id_factory or (lambda: str(uuid.uuid4()))
+        self._last_annotation_at: float | None = None
         self._generation = 0
         self._active: _TurnRuntime | None = None
         self._turn_tasks: dict[str, asyncio.Task] = {}
@@ -293,6 +348,8 @@ class CompanionSession:
                 "memory_result_too_large",
                 "memory result exceeds the originating query limit",
             )
+        if result.ok:
+            _remember_analysis_records(runtime, result.records)
         pending.future.set_result(result)
 
     async def interrupt(self, turn_id: str) -> None:
@@ -348,6 +405,7 @@ class CompanionSession:
             if not response_text:
                 raise ProviderError("OpenRouter LLM returned no final narration")
             await self._speak(runtime, response_text)
+            await self._maybe_propose_annotation(runtime)
         except asyncio.CancelledError:
             raise
         except TimeoutError:
@@ -370,6 +428,8 @@ class CompanionSession:
             )
         finally:
             self._cancel_pending_results(runtime)
+            runtime.analysis_records.clear()
+            runtime.analysis_event_ids.clear()
 
     async def _respond_with_tools(
         self, runtime: _TurnRuntime, messages: list[dict]
@@ -386,6 +446,41 @@ class CompanionSession:
             action_results = await self._request_actions(runtime, result)
             messages.extend(_action_result_messages(result, action_results))
         raise ProviderError("OpenRouter LLM exceeded the tool-call limit")
+
+    async def _maybe_propose_annotation(self, runtime: _TurnRuntime) -> None:
+        if runtime.analysis_attempted:
+            return
+        runtime.analysis_attempted = True
+        if not runtime.analysis_records or not self._owns(runtime):
+            return
+        if (
+            self._last_annotation_at is not None
+            and self._monotonic() - self._last_annotation_at
+            < self.annotation_cooldown_seconds
+        ):
+            return
+
+        try:
+            async with asyncio.timeout(self.timeouts.llm):
+                result = await self.providers.llm.respond(
+                    build_analysis_messages(runtime.analysis_records), []
+                )
+            if not self._owns(runtime):
+                return
+            proposal = _parse_grounded_annotation(
+                turn_id=runtime.turn_id,
+                proposal_id_factory=self._proposal_id_factory,
+                result=result,
+                grounded_source_event_ids=runtime.analysis_event_ids,
+            )
+            if proposal is None:
+                return
+            if await self._emit(runtime, proposal):
+                self._last_annotation_at = self._monotonic()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - optional analysis cannot fail a spoken turn.
+            return
 
     async def _request_actions(
         self, runtime: _TurnRuntime, result: LLMResult
@@ -625,6 +720,226 @@ def _normalize_memory_query_arguments(
             )
         normalized["limit"] = limit
     return normalized
+
+
+def _remember_analysis_records(
+    runtime: _TurnRuntime,
+    records: list[dict[str, JsonValue]],
+) -> None:
+    for record in records:
+        if len(runtime.analysis_records) >= MAX_ANALYSIS_RECORDS:
+            return
+        canonical = _canonical_analysis_record(record)
+        if canonical is None:
+            continue
+        event_id = canonical["event_id"]
+        if not isinstance(event_id, str) or event_id in runtime.analysis_event_ids:
+            continue
+        candidate = [*runtime.analysis_records, canonical]
+        try:
+            encoded = json.dumps(
+                {"canonical_memory_records": candidate},
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        except (TypeError, ValueError, UnicodeEncodeError):
+            continue
+        if len(encoded) > MAX_ANALYSIS_CONTEXT_BYTES:
+            continue
+        runtime.analysis_records.append(canonical)
+        runtime.analysis_event_ids.add(event_id)
+
+
+def _canonical_analysis_record(
+    record: dict[str, JsonValue],
+) -> dict[str, JsonValue] | None:
+    if any(key not in record for key in CANONICAL_MEMORY_KEYS):
+        return None
+    schema_version = record["schema_version"]
+    event_id = _normalize_identifier(record["event_id"])
+    event_type = _normalize_identifier(record["event_type"])
+    occurred_at_utc = record["occurred_at_utc"]
+    game_time = record["game_time"]
+    body_id = record["body_id"]
+    importance = record["importance"]
+    status = record["status"]
+    summary = record["summary"]
+    if type(schema_version) is not int or schema_version != 1:
+        return None
+    if event_id is None or event_type is None:
+        return None
+    if not isinstance(occurred_at_utc, str) or not _valid_timestamp(occurred_at_utc):
+        return None
+    if (
+        type(game_time) not in (int, float)
+        or not math.isfinite(float(game_time))
+        or float(game_time) < 0.0
+    ):
+        return None
+    if not isinstance(body_id, str):
+        return None
+    if body_id:
+        normalized_body_id = _normalize_identifier(body_id)
+        if normalized_body_id is None:
+            return None
+    else:
+        normalized_body_id = ""
+    if importance not in {"low", "normal", "high", "critical"}:
+        return None
+    if status not in {"started", "completed", "failed", "unresolved", "cancelled"}:
+        return None
+    if not isinstance(summary, str):
+        return None
+    normalized_summary = summary.strip()
+    if not normalized_summary or not _fits_utf8(normalized_summary, 512):
+        return None
+
+    canonical: dict[str, JsonValue] = {
+        "schema_version": 1,
+        "event_id": event_id,
+        "event_type": event_type,
+        "occurred_at_utc": occurred_at_utc,
+        "game_time": game_time,
+        "body_id": normalized_body_id,
+        "importance": importance,
+        "status": status,
+        "summary": normalized_summary,
+    }
+    for key in CANONICAL_MEMORY_DETAIL_KEYS:
+        if key not in record:
+            continue
+        value = record[key]
+        if not _is_bounded_memory_scalar(value):
+            return None
+        canonical[key] = value
+    return canonical
+
+
+def _parse_grounded_annotation(
+    *,
+    turn_id: str,
+    proposal_id_factory: Callable[[], str],
+    result: LLMResult,
+    grounded_source_event_ids: set[str],
+) -> AnnotationProposal | None:
+    if result.tool_calls or not isinstance(result.text, str):
+        return None
+    text = result.text.strip()
+    if not text or text == "NO_ANALYSIS":
+        return None
+    if not _fits_utf8(text, MAX_ANALYSIS_RESPONSE_BYTES):
+        return None
+    try:
+        payload = json.loads(
+            text,
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict) or set(payload) != {
+        "source_event_ids",
+        "summary",
+        "tags",
+    }:
+        return None
+
+    raw_source_ids = payload["source_event_ids"]
+    raw_summary = payload["summary"]
+    raw_tags = payload["tags"]
+    if (
+        not isinstance(raw_source_ids, list)
+        or not 1 <= len(raw_source_ids) <= 64
+        or not isinstance(raw_summary, str)
+        or not isinstance(raw_tags, list)
+        or len(raw_tags) > 16
+        or any(not isinstance(source_id, str) for source_id in raw_source_ids)
+        or any(not isinstance(tag, str) for tag in raw_tags)
+    ):
+        return None
+
+    source_event_ids: list[str] = []
+    for raw_source_id in raw_source_ids:
+        source_id = _normalize_identifier(raw_source_id)
+        if source_id is None or source_id in source_event_ids:
+            return None
+        source_event_ids.append(source_id)
+    if not set(source_event_ids).issubset(grounded_source_event_ids):
+        return None
+    summary = " ".join(raw_summary.split())
+    if not summary or not _fits_utf8(summary, MAX_ANNOTATION_SUMMARY_BYTES):
+        return None
+
+    tags: list[str] = []
+    for raw_tag in raw_tags:
+        tag = " ".join(raw_tag.split()).lower()
+        if not tag or not _fits_utf8(tag, MAX_ANNOTATION_TAG_BYTES):
+            return None
+        if tag not in tags:
+            tags.append(tag)
+    tags.sort()
+    proposal_id = _normalize_identifier(proposal_id_factory())
+    if proposal_id is None:
+        return None
+    try:
+        return AnnotationProposal(
+            type="annotation_proposal",
+            turn_id=turn_id,
+            proposal_id=proposal_id,
+            source_event_ids=source_event_ids,
+            summary=summary,
+            tags=tags,
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_identifier(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if not normalized or not _fits_utf8(normalized, MAX_IDENTIFIER_BYTES):
+        return None
+    return normalized
+
+
+def _fits_utf8(value: str, maximum: int) -> bool:
+    try:
+        return len(value.encode("utf-8")) <= maximum
+    except UnicodeEncodeError:
+        return False
+
+
+def _valid_timestamp(value: str) -> bool:
+    if len(value) != 20 or not value.endswith("Z"):
+        return False
+    try:
+        datetime.strptime(value, "%Y-%m-%dT%H:%M:%S%z")
+    except ValueError:
+        return False
+    return True
+
+
+def _is_bounded_memory_scalar(value: JsonValue) -> bool:
+    if isinstance(value, bool) or type(value) is int:
+        return True
+    if isinstance(value, float):
+        return math.isfinite(value)
+    return isinstance(value, str) and _fits_utf8(value, MAX_IDENTIFIER_BYTES)
+
+
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON object key")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"invalid JSON constant: {value}")
 
 
 def _action_result_messages(

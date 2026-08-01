@@ -5,8 +5,12 @@ from io import BytesIO
 
 import pytest
 
-from api.services.game_companion.persona import ASTER_SYSTEM_PROMPT
+from api.services.game_companion.persona import (
+    ASTER_ANALYSIS_SYSTEM_PROMPT,
+    ASTER_SYSTEM_PROMPT,
+)
 from api.services.game_companion.protocol import (
+    AnnotationProposal,
     AudioEnd,
     AudioStart,
     Caption,
@@ -90,6 +94,88 @@ async def wait_for_event(session, event_type, *, timeout=1.0):
                 if isinstance(event, event_type):
                     return event
             await asyncio.sleep(0)
+
+
+async def wait_for_turn_event(session, event_type, turn_id, *, timeout=1.0):
+    async with asyncio.timeout(timeout):
+        while True:
+            for event in session.outbound_events:
+                if isinstance(event, event_type) and event.turn_id == turn_id:
+                    return event
+            await asyncio.sleep(0)
+
+
+def canonical_event(event_id="event-1", **overrides):
+    event = {
+        "schema_version": 1,
+        "event_id": event_id,
+        "event_type": "recovery_completed",
+        "occurred_at_utc": "2026-08-01T15:00:00Z",
+        "game_time": 42.0,
+        "body_id": "planet_01_moon",
+        "importance": "normal",
+        "status": "completed",
+        "summary": "Recovery completed on planet_01_moon.",
+    }
+    event.update(overrides)
+    return event
+
+
+def analysis_json(
+    *, source_event_ids=None, summary="Recovery followed the impact.", tags=None
+):
+    return json.dumps(
+        {
+            "source_event_ids": source_event_ids or ["event-1"],
+            "summary": summary,
+            "tags": tags or [],
+        },
+        separators=(",", ":"),
+    )
+
+
+def memory_turn_results(
+    *, suffix="1", narration="I noticed a recovery pattern.", analysis=None
+):
+    results = [
+        LLMResult(
+            tool_calls=(
+                LLMToolCall(
+                    call_id=f"query-{suffix}",
+                    name="recent_activity",
+                    arguments={"limit": 2},
+                ),
+            )
+        ),
+        LLMResult(text=narration),
+    ]
+    if analysis is not None:
+        results.append(analysis)
+    return results
+
+
+async def submit_memory_turn(
+    session,
+    *,
+    turn_id="turn-1",
+    records=None,
+    ok=True,
+    error=None,
+):
+    await session.start_turn(turn_id, {"private_context": "SECRET_CONTEXT"})
+    await session.append_audio(turn_id, b"\x00\x00")
+    await session.end_turn(turn_id)
+    query = await wait_for_turn_event(session, MemoryQuery, turn_id)
+    await session.submit_memory_result(
+        MemoryResult(
+            type="memory_result",
+            turn_id=turn_id,
+            query_id=query.query_id,
+            ok=ok,
+            records=records or [],
+            error=error,
+        )
+    )
 
 
 async def test_new_turn_cancels_previous_provider_work():
@@ -643,6 +729,345 @@ async def test_action_id_cannot_be_reused_in_a_later_llm_round():
     await session.close()
 
 
+async def test_post_speech_analysis_is_private_grounded_and_typed():
+    secret_transcript = "SECRET_TRANSCRIPT_DO_NOT_ANALYZE"
+    secret_narration = "SECRET_NARRATION_DO_NOT_ANALYZE"
+    llm = FakeLLM(
+        results=memory_turn_results(
+            narration=secret_narration,
+            analysis=LLMResult(
+                text=analysis_json(
+                    summary="  Recovery   followed the impact.  ",
+                    tags=[" Recovery ", "landing", "RECOVERY"],
+                )
+            ),
+        )
+    )
+    tts = FakeTTS()
+    session = CompanionSession(
+        providers=fake_providers(
+            stt=FakeSTT(secret_transcript),
+            llm=llm,
+            tts=tts,
+        ),
+        proposal_id_factory=lambda: "proposal-fixed",
+    )
+    record = canonical_event(
+        private_payload="SECRET_MEMORY_FIELD",
+        data={"transcript": "SECRET_NESTED_MEMORY"},
+    )
+    invalid_record = {"event_id": "invalid-event", "summary": "SECRET_INVALID"}
+    await submit_memory_turn(session, records=[record, invalid_record])
+    await session.wait_for_turn("turn-1")
+
+    proposal = next(
+        event
+        for event in session.outbound_events
+        if isinstance(event, AnnotationProposal)
+    )
+    assert proposal.proposal_id == "proposal-fixed"
+    assert proposal.source_event_ids == ["event-1"]
+    assert proposal.summary == "Recovery followed the impact."
+    assert proposal.tags == ["landing", "recovery"]
+    audio_end_index = next(
+        index
+        for index, event in enumerate(session.outbound_events)
+        if isinstance(event, AudioEnd)
+    )
+    assert audio_end_index < session.outbound_events.index(proposal)
+    assert tts.calls == [secret_narration]
+
+    assert len(llm.calls) == 3
+    normal_tool_names = {
+        tool["function"]["name"] for call in llm.calls[:2] for tool in call["tools"]
+    }
+    assert "propose_companion_analysis" not in normal_tool_names
+    analysis_call = llm.calls[2]
+    assert analysis_call["tools"] == []
+    analysis_messages = json.dumps(analysis_call["messages"], ensure_ascii=False)
+    assert secret_transcript not in analysis_messages
+    assert "SECRET_CONTEXT" not in analysis_messages
+    assert secret_narration not in analysis_messages
+    assert "SECRET_MEMORY_FIELD" not in analysis_messages
+    assert "SECRET_NESTED_MEMORY" not in analysis_messages
+    assert "SECRET_INVALID" not in analysis_messages
+    assert "event-1" in analysis_messages
+    assert "recovery_completed" in analysis_messages
+    await session.close()
+
+
+async def test_no_analysis_sentinel_is_silent_and_does_not_fail_spoken_turn():
+    llm = FakeLLM(
+        results=memory_turn_results(analysis=LLMResult(text="  NO_ANALYSIS  "))
+    )
+    tts = FakeTTS()
+    session = CompanionSession(providers=fake_providers(llm=llm, tts=tts))
+    await submit_memory_turn(session, records=[canonical_event()])
+    await session.wait_for_turn("turn-1")
+
+    assert tts.calls == ["I noticed a recovery pattern."]
+    assert not any(
+        isinstance(event, AnnotationProposal) for event in session.outbound_events
+    )
+    assert not any(isinstance(event, ErrorMessage) for event in session.outbound_events)
+    assert llm.calls[-1]["tools"] == []
+    await session.close()
+
+
+@pytest.mark.parametrize(
+    "analysis_text",
+    [
+        "",
+        "not json",
+        "```json\n{}\n```",
+        "{}",
+        '{"source_event_ids":["event-1"],"summary":"Analysis","tags":[],"extra":true}',
+        '{"source_event_ids":["event-1"],"summary":"first","summary":"second","tags":[]}',
+    ],
+)
+async def test_invalid_analysis_json_is_silent_and_never_retried(analysis_text):
+    llm = FakeLLM(results=memory_turn_results(analysis=LLMResult(text=analysis_text)))
+    tts = FakeTTS()
+    session = CompanionSession(providers=fake_providers(llm=llm, tts=tts))
+    await submit_memory_turn(session, records=[canonical_event()])
+    await session.wait_for_turn("turn-1")
+
+    assert len(llm.calls) == 3
+    assert tts.calls == ["I noticed a recovery pattern."]
+    assert not any(
+        isinstance(event, (AnnotationProposal, ErrorMessage))
+        for event in session.outbound_events
+    )
+    await session.close()
+
+
+@pytest.mark.parametrize(
+    "analysis_text",
+    [
+        analysis_json(summary="é" * 257),
+        analysis_json(tags=["é" * 33]),
+        analysis_json(source_event_ids=["é" * 65]),
+        analysis_json(source_event_ids=["event-1", "event-1"]),
+        analysis_json(tags=[f"tag-{index}" for index in range(17)]),
+    ],
+)
+async def test_analysis_enforces_salvage_utf8_byte_and_collection_bounds(
+    analysis_text,
+):
+    llm = FakeLLM(results=memory_turn_results(analysis=LLMResult(text=analysis_text)))
+    session = CompanionSession(providers=fake_providers(llm=llm))
+    await submit_memory_turn(session, records=[canonical_event()])
+    await session.wait_for_turn("turn-1")
+
+    assert not any(
+        isinstance(event, AnnotationProposal) for event in session.outbound_events
+    )
+    assert not any(isinstance(event, ErrorMessage) for event in session.outbound_events)
+    await session.close()
+
+
+async def test_analysis_accepts_salvage_utf8_byte_boundaries():
+    event_id = "é" * 64
+    summary = "é" * 256
+    tag = "é" * 32
+    llm = FakeLLM(
+        results=memory_turn_results(
+            analysis=LLMResult(
+                text=analysis_json(
+                    source_event_ids=[event_id],
+                    summary=summary,
+                    tags=[tag],
+                )
+            )
+        )
+    )
+    session = CompanionSession(
+        providers=fake_providers(llm=llm),
+        proposal_id_factory=lambda: "proposal-boundary",
+    )
+    await submit_memory_turn(session, records=[canonical_event(event_id)])
+    await session.wait_for_turn("turn-1")
+
+    proposal = next(
+        event
+        for event in session.outbound_events
+        if isinstance(event, AnnotationProposal)
+    )
+    assert proposal.source_event_ids == [event_id]
+    assert proposal.summary == summary
+    assert proposal.tags == [tag]
+    await session.close()
+
+
+async def test_generated_proposal_id_obeys_salvage_utf8_byte_bound():
+    llm = FakeLLM(
+        results=memory_turn_results(
+            analysis=LLMResult(text=analysis_json()),
+        )
+    )
+    session = CompanionSession(
+        providers=fake_providers(llm=llm),
+        proposal_id_factory=lambda: "é" * 65,
+    )
+    await submit_memory_turn(session, records=[canonical_event()])
+    await session.wait_for_turn("turn-1")
+
+    assert not any(
+        isinstance(event, AnnotationProposal) for event in session.outbound_events
+    )
+    assert not any(isinstance(event, ErrorMessage) for event in session.outbound_events)
+    await session.close()
+
+
+@pytest.mark.parametrize(
+    ("records", "ok", "error"),
+    [
+        ([{"event_id": "event-1", "summary": "not canonical"}], True, None),
+        ([], False, "memory unavailable"),
+    ],
+)
+async def test_analysis_requires_successful_canonical_memory_records(
+    records, ok, error
+):
+    llm = FakeLLM(results=memory_turn_results())
+    session = CompanionSession(providers=fake_providers(llm=llm))
+    await submit_memory_turn(session, records=records, ok=ok, error=error)
+    await session.wait_for_turn("turn-1")
+
+    assert len(llm.calls) == 2
+    assert not any(
+        isinstance(event, AnnotationProposal) for event in session.outbound_events
+    )
+    await session.close()
+
+
+class BlockingAnalysisLLM(FakeLLM):
+    def __init__(self):
+        super().__init__(results=memory_turn_results())
+        self.analysis_started = asyncio.Event()
+
+    async def respond(self, messages: list[dict], tools: list[dict]) -> LLMResult:
+        if self.results:
+            return await super().respond(messages, tools)
+        self.calls.append({"messages": messages, "tools": tools})
+        self.analysis_started.set()
+        await asyncio.Event().wait()
+
+
+async def test_analysis_timeout_does_not_fail_completed_spoken_turn():
+    llm = BlockingAnalysisLLM()
+    tts = FakeTTS()
+    session = CompanionSession(
+        providers=fake_providers(llm=llm, tts=tts),
+        timeouts=ProviderTimeouts(stt=1.0, llm=0.01, tts=1.0, tool=1.0),
+    )
+    await submit_memory_turn(session, records=[canonical_event()])
+    await session.wait_for_turn("turn-1")
+
+    assert llm.analysis_started.is_set()
+    assert tts.calls == ["I noticed a recovery pattern."]
+    assert not any(isinstance(event, ErrorMessage) for event in session.outbound_events)
+    await session.close()
+
+
+class CancellationIgnoringAnalysisLLM(FakeLLM):
+    def __init__(self):
+        super().__init__(results=memory_turn_results())
+        self.analysis_started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def respond(self, messages: list[dict], tools: list[dict]) -> LLMResult:
+        if self.results:
+            return await super().respond(messages, tools)
+        self.calls.append({"messages": messages, "tools": tools})
+        self.analysis_started.set()
+        try:
+            await self.release.wait()
+        except asyncio.CancelledError:
+            await self.release.wait()
+        return LLMResult(text=analysis_json(summary="Stale analysis."))
+
+
+async def test_new_turn_cancels_stale_analysis_output():
+    llm = CancellationIgnoringAnalysisLLM()
+    session = CompanionSession(providers=fake_providers(llm=llm))
+    await submit_memory_turn(session, turn_id="old", records=[canonical_event()])
+    async with asyncio.timeout(1.0):
+        await llm.analysis_started.wait()
+
+    await session.start_turn("new", {})
+    llm.release.set()
+    await session.wait_for_turn("old")
+
+    assert not any(
+        isinstance(event, AnnotationProposal) and event.turn_id == "old"
+        for event in session.outbound_events
+    )
+    await session.close()
+
+
+async def test_annotation_cooldown_updates_only_after_emission_and_queues_nothing():
+    now = [100.0]
+    results = []
+    results.extend(
+        memory_turn_results(
+            suffix="0",
+            narration="Neutral narration zero.",
+            analysis=LLMResult(text="NO_ANALYSIS"),
+        )
+    )
+    results.extend(
+        memory_turn_results(
+            suffix="1",
+            narration="Neutral narration one.",
+            analysis=LLMResult(text=analysis_json(source_event_ids=["event-1"])),
+        )
+    )
+    results.extend(memory_turn_results(suffix="2", narration="Neutral narration two."))
+    results.extend(
+        memory_turn_results(
+            suffix="3",
+            narration="Neutral narration three.",
+            analysis=LLMResult(text=analysis_json(source_event_ids=["event-3"])),
+        )
+    )
+    llm = FakeLLM(results=results)
+    session = CompanionSession(
+        providers=fake_providers(llm=llm),
+        annotation_cooldown_seconds=60.0,
+        monotonic=lambda: now[0],
+        proposal_id_factory=lambda: f"proposal-{now[0]}",
+    )
+
+    await submit_memory_turn(session, turn_id="turn-0", records=[canonical_event()])
+    await session.wait_for_turn("turn-0")
+    await submit_memory_turn(session, turn_id="turn-1", records=[canonical_event()])
+    await session.wait_for_turn("turn-1")
+    await submit_memory_turn(
+        session,
+        turn_id="turn-2",
+        records=[canonical_event("event-2")],
+    )
+    await session.wait_for_turn("turn-2")
+    now[0] += 60.0
+    await submit_memory_turn(
+        session,
+        turn_id="turn-3",
+        records=[canonical_event("event-3")],
+    )
+    await session.wait_for_turn("turn-3")
+
+    proposals = [
+        event
+        for event in session.outbound_events
+        if isinstance(event, AnnotationProposal)
+    ]
+    assert [proposal.turn_id for proposal in proposals] == ["turn-1", "turn-3"]
+    assert len([call for call in llm.calls if call["tools"] == []]) == 3
+    assert not hasattr(session, "pending_annotation_proposals")
+    await session.close()
+
+
 async def test_tool_timeout_releases_all_pending_results():
     llm = FakeLLM(
         results=[
@@ -726,6 +1151,7 @@ async def test_tts_failure_closes_started_audio_before_recoverable_error():
 
 def test_aster_prompt_does_not_claim_unknown_game_facts():
     prompt = ASTER_SYSTEM_PROMPT.lower()
+    analysis_prompt = ASTER_ANALYSIS_SYSTEM_PROMPT.lower()
 
     assert "aster" in prompt
     assert "salvage" in prompt
@@ -733,3 +1159,9 @@ def test_aster_prompt_does_not_claim_unknown_game_facts():
     assert "supplied game context" in prompt
     assert "you are currently" not in prompt
     assert "your ship is" not in prompt
+    assert "companion analysis" in prompt
+    assert "never say" in prompt
+    assert "saved or accepted" in prompt
+    assert "canonical gameplay records" in analysis_prompt
+    assert "event_id" in analysis_prompt
+    assert "no_analysis" in analysis_prompt
