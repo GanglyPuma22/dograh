@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import json
+import shutil
 import statistics
 import time
 from collections import defaultdict
@@ -92,22 +93,35 @@ async def _benchmark_buffered_mp3(
     prompt_name: str,
     text: str,
 ) -> BenchmarkObservation:
+    service = adapter.service
+    voice = service._settings.voice
+    if voice is None:
+        raise ProviderError("OpenRouter TTS voice must be specified")
+    params = _speech_params(service, text, "mp3")
     started = time.perf_counter()
-    first_pcm_at = None
-    pcm_bytes = 0
-    async for chunk in adapter.synthesize(text):
-        if first_pcm_at is None:
-            first_pcm_at = time.perf_counter()
-        pcm_bytes += len(chunk.audio)
+    encoded_audio = bytearray()
+    chunk_size = service.chunk_size or 8192
+    async with service._client.audio.speech.with_streaming_response.create(
+        **params
+    ) as response:
+        if response.status_code != 200:
+            raise ProviderError(
+                f"buffered MP3 benchmark failed with HTTP {response.status_code}"
+            )
+        async for chunk in response.iter_bytes(chunk_size):
+            if chunk:
+                encoded_audio.extend(chunk)
+    pcm_audio = await _decode_mp3(bytes(encoded_audio), service.sample_rate or 24000)
+    first_pcm_at = time.perf_counter()
     completed = time.perf_counter()
-    if first_pcm_at is None or pcm_bytes == 0:
+    if not pcm_audio:
         raise ProviderError("buffered MP3 benchmark returned no PCM")
     return BenchmarkObservation(
         prompt=prompt_name,
         format="mp3",
         first_pcm_ms=(first_pcm_at - started) * 1000,
         total_ms=(completed - started) * 1000,
-        pcm_bytes=pcm_bytes,
+        pcm_bytes=len(pcm_audio),
     )
 
 
@@ -120,16 +134,7 @@ async def _benchmark_streaming_pcm(
     voice = service._settings.voice
     if voice is None:
         raise ProviderError("OpenRouter TTS voice must be specified")
-    params = {
-        "input": text,
-        "model": service._settings.model,
-        "voice": voice,
-        "response_format": "pcm",
-    }
-    if service._settings.instructions:
-        params["instructions"] = service._settings.instructions
-    if service._settings.speed:
-        params["speed"] = service._settings.speed
+    params = _speech_params(service, text, "pcm")
 
     started = time.perf_counter()
     first_pcm_at = None
@@ -160,6 +165,50 @@ async def _benchmark_streaming_pcm(
         total_ms=(completed - started) * 1000,
         pcm_bytes=pcm_bytes,
     )
+
+
+def _speech_params(service: Any, text: str, response_format: str) -> dict[str, Any]:
+    params = {
+        "input": text,
+        "model": service._settings.model,
+        "voice": service._settings.voice,
+        "response_format": response_format,
+    }
+    if service._settings.instructions:
+        params["instructions"] = service._settings.instructions
+    if service._settings.speed:
+        params["speed"] = service._settings.speed
+    return params
+
+
+async def _decode_mp3(audio: bytes, target_sample_rate: int) -> bytes:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg is required for the buffered MP3 benchmark")
+    proc = await asyncio.create_subprocess_exec(
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        "pipe:0",
+        "-f",
+        "s16le",
+        "-acodec",
+        "pcm_s16le",
+        "-ac",
+        "1",
+        "-ar",
+        str(target_sample_rate),
+        "pipe:1",
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate(audio)
+    if proc.returncode != 0:
+        raise ProviderError(f"ffmpeg failed decoding benchmark audio: {stderr!r}")
+    return stdout
 
 
 async def run_benchmark(runs: int) -> dict[str, Any]:
