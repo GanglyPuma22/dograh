@@ -117,6 +117,7 @@ CANONICAL_MEMORY_DETAIL_KEYS = frozenset(
 MEMORY_QUERY_NAMES = frozenset(
     {
         "recent_activity",
+        "recent_journal_items",
         "activity_for_body",
         "unresolved_incidents",
         "prior_failure",
@@ -129,6 +130,29 @@ MEMORY_QUERY_TOOLS: list[dict] = [
         "function": {
             "name": "recent_activity",
             "description": "Read the most recent canonical gameplay activity.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": MAX_MEMORY_QUERY_LIMIT,
+                        "default": DEFAULT_MEMORY_QUERY_LIMIT,
+                    }
+                },
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "recent_journal_items",
+            "description": (
+                "Read recent deterministic expedition episodes, player notes, and "
+                "explicitly labelled Companion Analysis. Use this for summaries of "
+                "what happened in prior play sessions."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {

@@ -172,6 +172,7 @@ class MemoryQuery(TurnMessage):
     query_id: Identifier
     name: Literal[
         "recent_activity",
+        "recent_journal_items",
         "activity_for_body",
         "unresolved_incidents",
         "prior_failure",
