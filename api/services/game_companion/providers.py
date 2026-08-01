@@ -1,0 +1,285 @@
+"""Provider-neutral interfaces and adapters for Dograh's OpenRouter services."""
+
+import asyncio
+import inspect
+import json
+import os
+import uuid
+import wave
+from collections.abc import AsyncIterator, Mapping
+from dataclasses import dataclass
+from io import BytesIO
+from typing import Any, Protocol
+
+from pydantic import JsonValue
+
+DEFAULT_LLM_MODEL = "deepseek/deepseek-v4-flash"
+DEFAULT_STT_MODEL = "qwen/qwen3-asr-flash-2026-02-10"
+DEFAULT_TTS_MODEL = "x-ai/grok-voice-tts-1.0"
+DEFAULT_TTS_VOICE = "eve"
+DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+
+class ProviderError(RuntimeError):
+    """A provider failed or returned a malformed response."""
+
+
+class ProviderConfigurationError(ValueError):
+    """The local provider configuration is incomplete."""
+
+
+@dataclass(frozen=True, slots=True)
+class PCMChunk:
+    audio: bytes
+    sample_rate: int
+    channels: int = 1
+
+
+@dataclass(frozen=True, slots=True)
+class LLMToolCall:
+    call_id: str
+    name: str
+    arguments: dict[str, JsonValue]
+
+
+@dataclass(frozen=True, slots=True)
+class LLMResult:
+    text: str = ""
+    tool_calls: tuple[LLMToolCall, ...] = ()
+
+
+class STTAdapter(Protocol):
+    async def transcribe(self, wav_audio: bytes) -> str: ...
+
+
+class LLMAdapter(Protocol):
+    async def respond(self, messages: list[dict], tools: list[dict]) -> LLMResult: ...
+
+
+class TTSAdapter(Protocol):
+    def synthesize(self, text: str) -> AsyncIterator[PCMChunk]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderSet:
+    stt: STTAdapter
+    llm: LLMAdapter
+    tts: TTSAdapter
+
+    async def close(self) -> None:
+        await asyncio.gather(
+            *(
+                _close_async_resource(provider)
+                for provider in (self.stt, self.llm, self.tts)
+            ),
+            return_exceptions=True,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OpenRouterProviderSettings:
+    api_key: str
+    llm_model: str = DEFAULT_LLM_MODEL
+    stt_model: str = DEFAULT_STT_MODEL
+    tts_model: str = DEFAULT_TTS_MODEL
+    tts_voice: str = DEFAULT_TTS_VOICE
+    base_url: str = DEFAULT_OPENROUTER_BASE_URL
+
+    @classmethod
+    def from_env(
+        cls, environ: Mapping[str, str] | None = None
+    ) -> "OpenRouterProviderSettings":
+        values = os.environ if environ is None else environ
+        api_key = values.get("OPENROUTER_API_KEY", "").strip()
+        if not api_key:
+            raise ProviderConfigurationError("OPENROUTER_API_KEY is required")
+        return cls(
+            api_key=api_key,
+            llm_model=values.get("DOGRAH_GAME_COMPANION_LLM_MODEL", DEFAULT_LLM_MODEL),
+            stt_model=values.get("DOGRAH_GAME_COMPANION_STT_MODEL", DEFAULT_STT_MODEL),
+            tts_model=values.get("DOGRAH_GAME_COMPANION_TTS_MODEL", DEFAULT_TTS_MODEL),
+            tts_voice=values.get("DOGRAH_GAME_COMPANION_TTS_VOICE", DEFAULT_TTS_VOICE),
+            base_url=values.get("OPENROUTER_BASE_URL", DEFAULT_OPENROUTER_BASE_URL),
+        )
+
+
+def pcm_s16le_to_wav(
+    pcm_audio: bytes,
+    *,
+    sample_rate: int,
+    channels: int,
+) -> bytes:
+    if sample_rate < 8000 or sample_rate > 48000:
+        raise ValueError("sample_rate must be between 8000 and 48000")
+    if channels != 1:
+        raise ValueError("game companion input must be mono")
+    if len(pcm_audio) % (2 * channels):
+        raise ValueError("PCM16 audio must contain complete samples")
+
+    output = BytesIO()
+    with wave.open(output, "wb") as wav_file:
+        wav_file.setnchannels(channels)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(pcm_audio)
+    return output.getvalue()
+
+
+class OpenRouterSTTAdapter:
+    def __init__(self, service: Any):
+        self.service = service
+
+    async def transcribe(self, wav_audio: bytes) -> str:
+        response = await self.service._transcribe(wav_audio)
+        text = getattr(response, "text", None)
+        if not isinstance(text, str) or not text.strip():
+            raise ProviderError("OpenRouter STT returned no transcript")
+        return text.strip()
+
+    async def close(self) -> None:
+        await _close_async_resource(self.service._client)
+
+
+class OpenRouterLLMAdapter:
+    def __init__(self, service: Any):
+        self.service = service
+
+    async def respond(self, messages: list[dict], tools: list[dict]) -> LLMResult:
+        from openai import NOT_GIVEN
+
+        invocation_params = {
+            "messages": [dict(message) for message in messages],
+            "tools": tools if tools else NOT_GIVEN,
+            "tool_choice": NOT_GIVEN,
+        }
+        params = self.service.build_chat_completion_params(invocation_params)
+        stream = await self.service._client.chat.completions.create(**params)
+        text_parts: list[str] = []
+        tool_fragments: dict[int, dict[str, Any]] = {}
+        try:
+            async for chunk in stream:
+                choices = getattr(chunk, "choices", None) or []
+                if not choices:
+                    continue
+                delta = choices[0].delta
+                content = getattr(delta, "content", None)
+                if isinstance(content, str):
+                    text_parts.append(content)
+                for tool_call in getattr(delta, "tool_calls", None) or []:
+                    fragment = tool_fragments.setdefault(
+                        tool_call.index,
+                        {"call_id": "", "name": "", "arguments": []},
+                    )
+                    if getattr(tool_call, "id", None):
+                        fragment["call_id"] += tool_call.id
+                    function = getattr(tool_call, "function", None)
+                    if function is None:
+                        continue
+                    if getattr(function, "name", None):
+                        fragment["name"] += function.name
+                    if getattr(function, "arguments", None):
+                        fragment["arguments"].append(function.arguments)
+        finally:
+            await _close_async_resource(stream)
+
+        tool_calls = tuple(
+            _parse_tool_call(fragment) for _, fragment in sorted(tool_fragments.items())
+        )
+        return LLMResult(text="".join(text_parts).strip(), tool_calls=tool_calls)
+
+    async def close(self) -> None:
+        await _close_async_resource(self.service._client)
+
+
+class OpenRouterTTSAdapter:
+    def __init__(self, service: Any):
+        self.service = service
+
+    async def synthesize(self, text: str) -> AsyncIterator[PCMChunk]:
+        frames = self.service.run_tts(text, f"game-companion-{uuid.uuid4()}")
+        try:
+            async for frame in frames:
+                error = getattr(frame, "error", None)
+                if error:
+                    raise ProviderError(str(error))
+                audio = getattr(frame, "audio", None)
+                sample_rate = getattr(frame, "sample_rate", None)
+                channels = getattr(frame, "num_channels", None)
+                if not isinstance(audio, bytes) or not audio:
+                    raise ProviderError("OpenRouter TTS returned a non-audio frame")
+                if not isinstance(sample_rate, int) or not isinstance(channels, int):
+                    raise ProviderError("OpenRouter TTS returned invalid PCM metadata")
+                yield PCMChunk(
+                    audio=audio,
+                    sample_rate=sample_rate,
+                    channels=channels,
+                )
+        finally:
+            await _close_async_resource(frames)
+
+    async def close(self) -> None:
+        await _close_async_resource(self.service._client)
+
+
+def _parse_tool_call(fragment: dict[str, Any]) -> LLMToolCall:
+    call_id = fragment["call_id"]
+    name = fragment["name"]
+    if not call_id or not name:
+        raise ProviderError("OpenRouter LLM returned an incomplete tool call")
+    raw_arguments = "".join(fragment["arguments"]) or "{}"
+    try:
+        arguments = json.loads(raw_arguments)
+    except json.JSONDecodeError as exc:
+        raise ProviderError("OpenRouter LLM returned invalid tool arguments") from exc
+    if not isinstance(arguments, dict):
+        raise ProviderError("OpenRouter LLM tool arguments must be an object")
+    return LLMToolCall(call_id=call_id, name=name, arguments=arguments)
+
+
+async def _close_async_resource(resource: Any) -> None:
+    close = getattr(resource, "aclose", None) or getattr(resource, "close", None)
+    if close is None:
+        return
+    result = close()
+    if inspect.isawaitable(result):
+        await result
+
+
+def create_openrouter_provider_set(
+    settings: OpenRouterProviderSettings | None = None,
+) -> ProviderSet:
+    if settings is None:
+        settings = OpenRouterProviderSettings.from_env()
+
+    from api.services.configuration.registry import ServiceProviders
+    from api.services.pipecat.service_factory import (
+        OpenRouterSTTService,
+        OpenRouterTTSService,
+        create_llm_service_from_provider,
+    )
+
+    stt_service = OpenRouterSTTService(
+        api_key=settings.api_key,
+        base_url=settings.base_url,
+        settings=OpenRouterSTTService.Settings(model=settings.stt_model),
+    )
+    llm_service = create_llm_service_from_provider(
+        ServiceProviders.OPENROUTER.value,
+        settings.llm_model,
+        settings.api_key,
+        base_url=settings.base_url,
+    )
+    tts_service = OpenRouterTTSService(
+        api_key=settings.api_key,
+        base_url=settings.base_url,
+        settings=OpenRouterTTSService.Settings(
+            model=settings.tts_model,
+            voice=settings.tts_voice,
+            speed=1.0,
+        ),
+    )
+    return ProviderSet(
+        stt=OpenRouterSTTAdapter(stt_service),
+        llm=OpenRouterLLMAdapter(llm_service),
+        tts=OpenRouterTTSAdapter(tts_service),
+    )
