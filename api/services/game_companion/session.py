@@ -3,8 +3,10 @@
 import asyncio
 import json
 import math
+import re
 import time
 import uuid
+from collections import deque
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -18,6 +20,7 @@ from api.services.game_companion.persona import (
     build_turn_messages,
 )
 from api.services.game_companion.protocol import (
+    MAX_BINARY_FRAME_BYTES,
     MAX_TURN_AUDIO_BYTES,
     AnnotationProposal,
     AudioEnd,
@@ -33,6 +36,7 @@ from api.services.game_companion.protocol import (
     ToolResult,
 )
 from api.services.game_companion.providers import (
+    MAX_ANALYSIS_LLM_RESPONSE_BYTES,
     LLMResult,
     PCMChunk,
     ProviderError,
@@ -48,10 +52,38 @@ DEFAULT_MEMORY_QUERY_LIMIT = 10
 DEFAULT_ANNOTATION_COOLDOWN_SECONDS = 60.0
 MAX_ANALYSIS_RECORDS = 20
 MAX_ANALYSIS_CONTEXT_BYTES = 32 * 1024
-MAX_ANALYSIS_RESPONSE_BYTES = 16 * 1024
+MAX_ANALYSIS_RESPONSE_BYTES = MAX_ANALYSIS_LLM_RESPONSE_BYTES
 MAX_ANNOTATION_SUMMARY_BYTES = 512
 MAX_ANNOTATION_TAG_BYTES = 64
 MAX_IDENTIFIER_BYTES = 128
+MAX_OUTPUT_AUDIO_BYTES = 8 * 1024 * 1024
+MAX_RETAINED_TURN_TASKS = 64
+MAX_CANCELLED_TURN_IDS = 64
+MAX_BACKGROUND_TURN_TASKS = 64
+SESSION_CLOSE_TIMEOUT_SECONDS = 1.0
+_UNSUPPORTED_PERSISTENCE_FALLBACK = "I found a pattern in the expedition record."
+_PERSISTENCE_OBJECT_PATTERN = re.compile(
+    r"\b(?:companion\s+analysis|analysis(?:\s+proposal)?|"
+    r"annotation(?:\s+proposal)?|insight|note)\b",
+    re.IGNORECASE,
+)
+_PERSISTENCE_VERB_PATTERN = re.compile(
+    r"\b(?:sav(?:e|ed|es|ing)|stor(?:e|ed|es|ing)|accept(?:ed|s|ing)?|"
+    r"add(?:ed|s|ing)?|write|writes|writing|wrote|written|"
+    r"log(?:ged|s|ging)?|persist(?:ed|s|ing)?|creat(?:e|ed|es|ing)|"
+    r"fil(?:e|ed|es|ing)|record(?:ed|s|ing)?|put|puts|putting|"
+    r"append(?:ed|s|ing)?|updat(?:e|ed|es|ing)|commit(?:s|ted|ting)?|"
+    r"archiv(?:e|ed|es|ing)|publish(?:ed|es|ing)?)\b",
+    re.IGNORECASE,
+)
+_NEGATION_PATTERN = re.compile(
+    r"(?:\bnever\b|\bnot\b|\bno\b|n(?:'|\u2019)t\b)[^.!?,;]{0,32}$",
+    re.IGNORECASE,
+)
+_PERSISTENCE_CLAUSE_BREAK_PATTERN = re.compile(
+    r"(?:[,;]|\bbut\b|\bhowever\b)",
+    re.IGNORECASE,
+)
 CANONICAL_MEMORY_KEYS = (
     "schema_version",
     "event_id",
@@ -208,6 +240,13 @@ class _PendingMemoryResult:
     max_records: int
 
 
+@dataclass(frozen=True, slots=True)
+class _PendingToolResult:
+    future: asyncio.Future[ToolResult]
+    name: str
+    arguments: dict[str, JsonValue]
+
+
 @dataclass(slots=True)
 class _TurnRuntime:
     turn_id: str
@@ -216,9 +255,7 @@ class _TurnRuntime:
     audio: bytearray = field(default_factory=bytearray)
     input_closed: bool = False
     task: asyncio.Task | None = None
-    pending_tool_results: dict[str, asyncio.Future[ToolResult]] = field(
-        default_factory=dict
-    )
+    pending_tool_results: dict[str, _PendingToolResult] = field(default_factory=dict)
     pending_memory_results: dict[str, _PendingMemoryResult] = field(
         default_factory=dict
     )
@@ -249,7 +286,7 @@ class CompanionSession:
         self.input_sample_rate = input_sample_rate
         self.annotation_cooldown_seconds = annotation_cooldown_seconds
         self.outbound_events: list[OutboundEvent] = []
-        self.cancelled_turn_ids: list[str] = []
+        self.cancelled_turn_ids: deque[str] = deque(maxlen=MAX_CANCELLED_TURN_IDS)
         self._emit_callback = emit
         self._monotonic = monotonic
         self._proposal_id_factory = proposal_id_factory or (lambda: str(uuid.uuid4()))
@@ -272,8 +309,17 @@ class CompanionSession:
     def pending_tool_result_count(self) -> int:
         return len(self._active.pending_tool_results) if self._active else 0
 
+    @property
+    def retained_turn_task_count(self) -> int:
+        return len(self._turn_tasks)
+
+    @property
+    def background_turn_task_count(self) -> int:
+        return len(self._background_tasks)
+
     async def start_turn(self, turn_id: str, context: dict[str, JsonValue]) -> None:
         self._require_open()
+        self._require_provider_capacity()
         old_runtime = self._active
         self._generation += 1
         runtime = _TurnRuntime(
@@ -283,7 +329,8 @@ class CompanionSession:
         )
         self._active = runtime
         if old_runtime is not None:
-            self.cancelled_turn_ids.append(old_runtime.turn_id)
+            if old_runtime.task is None or not old_runtime.task.done():
+                self.cancelled_turn_ids.append(old_runtime.turn_id)
             self._cancel_runtime(old_runtime)
         await self._emit(
             runtime,
@@ -316,7 +363,7 @@ class CompanionSession:
             self._run_turn(runtime),
             name=f"game-companion-{turn_id}",
         )
-        self._turn_tasks[turn_id] = runtime.task
+        self._retain_turn_task(turn_id, runtime.task)
         self._track_background_task(runtime.task)
 
     async def wait_for_turn(self, turn_id: str) -> None:
@@ -327,13 +374,19 @@ class CompanionSession:
 
     async def submit_tool_result(self, result: ToolResult) -> None:
         runtime = self._require_active(result.turn_id)
-        future = runtime.pending_tool_results.get(result.call_id)
-        if future is None or future.done():
+        pending = runtime.pending_tool_results.get(result.call_id)
+        if pending is None or pending.future.done():
             raise ProtocolError(
                 "unexpected_tool_result",
                 f"no pending tool call owns call_id {result.call_id!r}",
             )
-        future.set_result(result)
+        if not _tool_result_matches_request(pending, result):
+            raise ProtocolError(
+                "invalid_tool_result",
+                "tool result does not match the authorized request",
+                recoverable=True,
+            )
+        pending.future.set_result(result)
 
     async def submit_memory_result(self, result: MemoryResult) -> None:
         runtime = self._require_active(result.turn_id)
@@ -366,10 +419,13 @@ class CompanionSession:
             self._cancel_runtime(self._active)
             self._active = None
         tasks = list(self._background_tasks)
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        await self._wait_for_cleanup(tasks)
         self._turn_tasks.clear()
-        await self.providers.close()
+        provider_close = asyncio.create_task(
+            self.providers.close(),
+            name="game-companion-provider-close",
+        )
+        await self._wait_for_cleanup([provider_close])
 
     async def _run_turn(self, runtime: _TurnRuntime) -> None:
         try:
@@ -383,7 +439,7 @@ class CompanionSession:
                 transcript = await self.providers.stt.transcribe(wav_audio)
             if not self._owns(runtime):
                 return
-            await self._emit(
+            if not await self._emit(
                 runtime,
                 Caption(
                     type="caption",
@@ -392,11 +448,13 @@ class CompanionSession:
                     text=transcript,
                     final=True,
                 ),
-            )
-            await self._emit(
+            ):
+                return
+            if not await self._emit(
                 runtime,
                 State(type="state", turn_id=runtime.turn_id, state="thinking"),
-            )
+            ):
+                return
 
             messages = build_turn_messages(transcript, runtime.context)
             response_text = await self._respond_with_tools(runtime, messages)
@@ -404,6 +462,7 @@ class CompanionSession:
                 return
             if not response_text:
                 raise ProviderError("OpenRouter LLM returned no final narration")
+            response_text = _filter_unsupported_persistence_claims(response_text)
             await self._speak(runtime, response_text)
             await self._maybe_propose_annotation(runtime)
         except asyncio.CancelledError:
@@ -486,18 +545,25 @@ class CompanionSession:
         self, runtime: _TurnRuntime, result: LLMResult
     ) -> list[ToolResult | MemoryResult]:
         loop = asyncio.get_running_loop()
+        tool_arguments: dict[str, dict[str, JsonValue]] = {}
         memory_arguments: dict[str, dict[str, JsonValue]] = {}
         for call in result.tool_calls:
             if call.call_id in runtime.used_action_ids:
                 raise ProviderError("OpenRouter LLM repeated a tool call ID")
             runtime.used_action_ids.add(call.call_id)
             if call.name == "set_navigation_target":
+                arguments = _normalize_navigation_arguments(call.arguments)
+                tool_arguments[call.call_id] = arguments
                 if (
                     call.call_id in runtime.pending_tool_results
                     or call.call_id in runtime.pending_memory_results
                 ):
                     raise ProviderError("OpenRouter LLM repeated a tool call ID")
-                runtime.pending_tool_results[call.call_id] = loop.create_future()
+                runtime.pending_tool_results[call.call_id] = _PendingToolResult(
+                    future=loop.create_future(),
+                    name=call.name,
+                    arguments=arguments,
+                )
             elif call.name in MEMORY_QUERY_NAMES:
                 if (
                     call.call_id in runtime.pending_tool_results
@@ -520,7 +586,7 @@ class CompanionSession:
                     turn_id=runtime.turn_id,
                     call_id=call.call_id,
                     name="set_navigation_target",
-                    arguments=call.arguments,
+                    arguments=tool_arguments[call.call_id],
                 )
             else:
                 event = MemoryQuery(
@@ -530,12 +596,13 @@ class CompanionSession:
                     name=call.name,
                     arguments=memory_arguments[call.call_id],
                 )
-            await self._emit(runtime, event)
+            if not await self._emit(runtime, event):
+                raise asyncio.CancelledError
 
         results: list[ToolResult | MemoryResult] = []
         for call in result.tool_calls:
             if call.name == "set_navigation_target":
-                future = runtime.pending_tool_results[call.call_id]
+                future = runtime.pending_tool_results[call.call_id].future
             else:
                 future = runtime.pending_memory_results[call.call_id].future
             try:
@@ -550,7 +617,7 @@ class CompanionSession:
         return results
 
     async def _speak(self, runtime: _TurnRuntime, text: str) -> None:
-        await self._emit(
+        if not await self._emit(
             runtime,
             Caption(
                 type="caption",
@@ -559,21 +626,28 @@ class CompanionSession:
                 text=text,
                 final=True,
             ),
-        )
-        await self._emit(
+        ):
+            return
+        if not await self._emit(
             runtime,
             State(type="state", turn_id=runtime.turn_id, state="speaking"),
-        )
+        ):
+            return
 
         first_chunk: PCMChunk | None = None
+        audio_open = False
+        output_audio_bytes = 0
         try:
             async with asyncio.timeout(self.timeouts.tts):
                 async for chunk in self.providers.tts.synthesize(text):
                     if not self._owns(runtime):
                         return
+                    _validate_tts_chunk(chunk)
+                    next_audio_bytes = output_audio_bytes + len(chunk.audio)
+                    if next_audio_bytes > MAX_OUTPUT_AUDIO_BYTES:
+                        raise ProviderError("TTS PCM response is too large")
                     if first_chunk is None:
-                        first_chunk = chunk
-                        await self._emit(
+                        if not await self._emit(
                             runtime,
                             AudioStart(
                                 type="audio_start",
@@ -582,7 +656,10 @@ class CompanionSession:
                                 channels=chunk.channels,
                                 format="pcm_s16le",
                             ),
-                        )
+                        ):
+                            return
+                        first_chunk = chunk
+                        audio_open = True
                     elif (
                         chunk.sample_rate != first_chunk.sample_rate
                         or chunk.channels != first_chunk.channels
@@ -590,12 +667,14 @@ class CompanionSession:
                         raise ProviderError(
                             "TTS PCM format changed within one response"
                         )
-                    await self._emit(runtime, chunk.audio)
+                    if not await self._emit(runtime, chunk.audio):
+                        return
+                    output_audio_bytes = next_audio_bytes
 
             if first_chunk is None:
                 raise ProviderError("OpenRouter TTS returned no audio")
         finally:
-            if first_chunk is not None and self._owns(runtime):
+            if audio_open and self._owns(runtime):
                 await self._emit(
                     runtime,
                     AudioEnd(type="audio_end", turn_id=runtime.turn_id),
@@ -608,7 +687,7 @@ class CompanionSession:
     async def _fail(self, runtime: _TurnRuntime, *, code: str, message: str) -> None:
         if not self._owns(runtime):
             return
-        await self._emit(
+        if not await self._emit(
             runtime,
             ErrorMessage(
                 type="error",
@@ -617,7 +696,8 @@ class CompanionSession:
                 message=message,
                 recoverable=True,
             ),
-        )
+        ):
+            return
         await self._emit(
             runtime,
             State(type="state", turn_id=runtime.turn_id, state="degraded"),
@@ -630,7 +710,7 @@ class CompanionSession:
             self.outbound_events.append(event)
         else:
             await self._emit_callback(event)
-        return True
+        return self._owns(runtime)
 
     def _owns(self, runtime: _TurnRuntime) -> bool:
         return (
@@ -662,9 +742,9 @@ class CompanionSession:
 
     @staticmethod
     def _cancel_pending_results(runtime: _TurnRuntime) -> None:
-        for future in runtime.pending_tool_results.values():
-            if not future.done():
-                future.cancel()
+        for pending in runtime.pending_tool_results.values():
+            if not pending.future.done():
+                pending.future.cancel()
         runtime.pending_tool_results.clear()
         for pending in runtime.pending_memory_results.values():
             if not pending.future.done():
@@ -680,6 +760,119 @@ class CompanionSession:
                 completed.exception()
 
         task.add_done_callback(discard)
+
+    def _require_provider_capacity(self) -> None:
+        for task in tuple(self._background_tasks):
+            if task.done():
+                self._background_tasks.discard(task)
+                _consume_task_result(task)
+        if len(self._background_tasks) >= MAX_BACKGROUND_TURN_TASKS:
+            raise ProtocolError(
+                "provider_backlog_exhausted",
+                "provider work did not stop; reconnect before starting another turn",
+                recoverable=True,
+            )
+
+    def _retain_turn_task(self, turn_id: str, task: asyncio.Task) -> None:
+        self._turn_tasks.pop(turn_id, None)
+        self._turn_tasks[turn_id] = task
+        while len(self._turn_tasks) > MAX_RETAINED_TURN_TASKS:
+            oldest_turn_id = next(iter(self._turn_tasks))
+            self._turn_tasks.pop(oldest_turn_id)
+
+    async def _wait_for_cleanup(self, tasks: list[asyncio.Task]) -> None:
+        pending = {task for task in tasks if not task.done()}
+        if pending:
+            done, pending = await asyncio.wait(
+                pending,
+                timeout=SESSION_CLOSE_TIMEOUT_SECONDS,
+            )
+        else:
+            done = set(tasks)
+        for task in done:
+            _consume_task_result(task)
+        for task in pending:
+            task.cancel()
+            if task not in self._background_tasks:
+                task.add_done_callback(_consume_task_result)
+
+
+def _normalize_navigation_arguments(
+    arguments: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    if set(arguments) != {"body_id"}:
+        raise ProviderError("navigation tool requires only body_id")
+    body_id = arguments.get("body_id")
+    if (
+        not isinstance(body_id, str)
+        or body_id != body_id.strip()
+        or _normalize_identifier(body_id) is None
+    ):
+        raise ProviderError("navigation tool requires a valid body_id")
+    return {"body_id": body_id}
+
+
+def _validate_tts_chunk(chunk: PCMChunk) -> None:
+    if not isinstance(chunk, PCMChunk):
+        raise ProviderError("TTS returned an invalid PCM chunk")
+    if (
+        type(chunk.sample_rate) is not int
+        or chunk.sample_rate < 8000
+        or chunk.sample_rate > 48000
+    ):
+        raise ProviderError("TTS returned an invalid PCM sample rate")
+    if type(chunk.channels) is not int or chunk.channels != 1:
+        raise ProviderError("TTS returned non-mono PCM audio")
+    if not isinstance(chunk.audio, bytes) or not chunk.audio:
+        raise ProviderError("TTS returned an invalid PCM audio frame")
+    if len(chunk.audio) > MAX_BINARY_FRAME_BYTES:
+        raise ProviderError("TTS PCM audio frame is too large")
+    if len(chunk.audio) % 2:
+        raise ProviderError("TTS PCM audio frame contains an incomplete sample")
+
+
+def _consume_task_result(task: asyncio.Task) -> None:
+    with suppress(asyncio.CancelledError, Exception):
+        task.exception()
+
+
+def _tool_result_matches_request(
+    pending: _PendingToolResult,
+    result: ToolResult,
+) -> bool:
+    if not result.ok:
+        return True
+    if pending.name != "set_navigation_target" or result.result is None:
+        return False
+    if set(result.result) != {"body_id", "navigation_state"}:
+        return False
+    expected_body_id = pending.arguments.get("body_id")
+    if result.result.get("body_id") != expected_body_id:
+        return False
+    navigation_state = result.result.get("navigation_state")
+    if isinstance(navigation_state, str):
+        return _normalize_identifier(navigation_state) is not None
+    if not isinstance(navigation_state, dict) or set(navigation_state) != {
+        "target_body_id",
+        "status",
+    }:
+        return False
+    return (
+        navigation_state.get("target_body_id") == expected_body_id
+        and _normalize_identifier(navigation_state.get("status")) is not None
+    )
+
+
+def _filter_unsupported_persistence_claims(text: str) -> str:
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        if _PERSISTENCE_OBJECT_PATTERN.search(sentence) is None:
+            continue
+        for verb in _PERSISTENCE_VERB_PATTERN.finditer(sentence):
+            prefix = sentence[max(0, verb.start() - 40) : verb.start()]
+            prefix = _PERSISTENCE_CLAUSE_BREAK_PATTERN.split(prefix)[-1]
+            if _NEGATION_PATTERN.search(prefix) is None:
+                return _UNSUPPORTED_PERSISTENCE_FALLBACK
+    return text
 
 
 def _normalize_memory_query_arguments(
@@ -771,11 +964,7 @@ def _canonical_analysis_record(
         return None
     if not isinstance(occurred_at_utc, str) or not _valid_timestamp(occurred_at_utc):
         return None
-    if (
-        type(game_time) not in (int, float)
-        or not math.isfinite(float(game_time))
-        or float(game_time) < 0.0
-    ):
+    if not _is_finite_nonnegative_number(game_time):
         return None
     if not isinstance(body_id, str):
         return None
@@ -785,9 +974,20 @@ def _canonical_analysis_record(
             return None
     else:
         normalized_body_id = ""
-    if importance not in {"low", "normal", "high", "critical"}:
+    if not isinstance(importance, str) or importance not in {
+        "low",
+        "normal",
+        "high",
+        "critical",
+    }:
         return None
-    if status not in {"started", "completed", "failed", "unresolved", "cancelled"}:
+    if not isinstance(status, str) or status not in {
+        "started",
+        "completed",
+        "failed",
+        "unresolved",
+        "cancelled",
+    }:
         return None
     if not isinstance(summary, str):
         return None
@@ -927,6 +1127,16 @@ def _is_bounded_memory_scalar(value: JsonValue) -> bool:
     if isinstance(value, float):
         return math.isfinite(value)
     return isinstance(value, str) and _fits_utf8(value, MAX_IDENTIFIER_BYTES)
+
+
+def _is_finite_nonnegative_number(value: object) -> bool:
+    if type(value) not in (int, float):
+        return False
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return False
+    return math.isfinite(numeric) and numeric >= 0.0
 
 
 def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:

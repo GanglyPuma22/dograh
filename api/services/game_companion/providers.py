@@ -18,6 +18,9 @@ DEFAULT_STT_MODEL = "qwen/qwen3-asr-flash-2026-02-10"
 DEFAULT_TTS_MODEL = "x-ai/grok-voice-tts-1.0"
 DEFAULT_TTS_VOICE = "eve"
 DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+MAX_LLM_RESPONSE_BYTES = 64 * 1024
+MAX_ANALYSIS_LLM_RESPONSE_BYTES = 16 * 1024
+MAX_LLM_TOOL_FRAGMENTS = 256
 
 
 class ProviderError(RuntimeError):
@@ -156,6 +159,11 @@ class OpenRouterLLMAdapter:
         stream = await self.service._client.chat.completions.create(**params)
         text_parts: list[str] = []
         tool_fragments: dict[int, dict[str, Any]] = {}
+        response_bytes = 0
+        tool_fragment_count = 0
+        response_limit = (
+            MAX_ANALYSIS_LLM_RESPONSE_BYTES if not tools else MAX_LLM_RESPONSE_BYTES
+        )
         try:
             async for chunk in stream:
                 choices = getattr(chunk, "choices", None) or []
@@ -164,21 +172,42 @@ class OpenRouterLLMAdapter:
                 delta = choices[0].delta
                 content = getattr(delta, "content", None)
                 if isinstance(content, str):
+                    response_bytes += _utf8_size(content)
+                    _require_response_within_limit(response_bytes, response_limit)
                     text_parts.append(content)
                 for tool_call in getattr(delta, "tool_calls", None) or []:
+                    tool_fragment_count += 1
+                    if tool_fragment_count > MAX_LLM_TOOL_FRAGMENTS:
+                        raise ProviderError(
+                            "OpenRouter LLM returned too many tool fragments"
+                        )
+                    index = getattr(tool_call, "index", None)
+                    if type(index) is not int or index < 0:
+                        raise ProviderError(
+                            "OpenRouter LLM returned an invalid tool fragment index"
+                        )
                     fragment = tool_fragments.setdefault(
-                        tool_call.index,
+                        index,
                         {"call_id": "", "name": "", "arguments": []},
                     )
                     if getattr(tool_call, "id", None):
-                        fragment["call_id"] += tool_call.id
+                        call_id = tool_call.id
+                        response_bytes += _utf8_size(call_id)
+                        _require_response_within_limit(response_bytes, response_limit)
+                        fragment["call_id"] += call_id
                     function = getattr(tool_call, "function", None)
                     if function is None:
                         continue
                     if getattr(function, "name", None):
-                        fragment["name"] += function.name
+                        name = function.name
+                        response_bytes += _utf8_size(name)
+                        _require_response_within_limit(response_bytes, response_limit)
+                        fragment["name"] += name
                     if getattr(function, "arguments", None):
-                        fragment["arguments"].append(function.arguments)
+                        arguments = function.arguments
+                        response_bytes += _utf8_size(arguments)
+                        _require_response_within_limit(response_bytes, response_limit)
+                        fragment["arguments"].append(arguments)
         finally:
             await _close_async_resource(stream)
 
@@ -234,6 +263,20 @@ def _parse_tool_call(fragment: dict[str, Any]) -> LLMToolCall:
     if not isinstance(arguments, dict):
         raise ProviderError("OpenRouter LLM tool arguments must be an object")
     return LLMToolCall(call_id=call_id, name=name, arguments=arguments)
+
+
+def _utf8_size(value: Any) -> int:
+    if not isinstance(value, str):
+        raise ProviderError("OpenRouter LLM returned a non-text response fragment")
+    try:
+        return len(value.encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        raise ProviderError("OpenRouter LLM returned invalid UTF-8 text") from exc
+
+
+def _require_response_within_limit(size: int, limit: int) -> None:
+    if size > limit:
+        raise ProviderError("OpenRouter LLM response is too large")
 
 
 async def _close_async_resource(resource: Any) -> None:
