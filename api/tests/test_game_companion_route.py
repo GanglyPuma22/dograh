@@ -141,6 +141,22 @@ def test_route_is_disabled_without_explicit_local_opt_in(monkeypatch):
     assert disconnect.value.code == 1008
 
 
+def test_route_session_uses_selected_game_companion_provider_factory(monkeypatch):
+    selected_providers = object()
+    monkeypatch.setattr(
+        game_companion,
+        "create_game_companion_provider_set",
+        lambda: selected_providers,
+    )
+
+    async def emit(_event):
+        pass
+
+    session = game_companion.create_companion_session(emit)
+
+    assert session.providers is selected_providers
+
+
 def test_hello_negotiates_protocol_and_audio(enabled_client):
     client, sessions = enabled_client
     websocket, _connection, acknowledgement = connect_and_hello(client)

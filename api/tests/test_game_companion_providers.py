@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from api.services.game_companion.providers import (
+    CooldownFallbackTTSAdapter,
     FishTTSAdapter,
     FishTTSSettings,
     GameCompanionProviderSettings,
@@ -14,9 +15,11 @@ from api.services.game_companion.providers import (
     OpenRouterProviderSettings,
     OpenRouterSTTAdapter,
     OpenRouterTTSAdapter,
+    PCMChunk,
     ProviderConfigurationError,
     ProviderError,
     ProviderSet,
+    create_game_companion_provider_set,
     create_openrouter_provider_set,
     pcm_s16le_to_wav,
 )
@@ -70,6 +73,24 @@ class FakeFishHTTPClient:
         return FakeFishResponseContext(self.response, self.enter_error)
 
     async def aclose(self):
+        self.close_count += 1
+
+
+class ScriptedTTS:
+    def __init__(self, outcomes):
+        self.outcomes = list(outcomes)
+        self.calls = []
+        self.close_count = 0
+
+    async def synthesize(self, text):
+        self.calls.append(text)
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        for chunk in outcome:
+            yield chunk
+
+    async def close(self):
         self.close_count += 1
 
 
@@ -558,6 +579,85 @@ async def test_fish_tts_closes_response_and_http_client_exactly_once():
     assert response.enter_count == 1
     assert response.exit_count == 1
     assert client.close_count == 1
+
+
+async def test_fish_failure_never_substitutes_audio_until_the_next_utterance():
+    pcm = PCMChunk(audio=b"\x01\x00", sample_rate=24000, channels=1)
+    primary = ScriptedTTS([ProviderError("Fish unavailable"), [pcm]])
+    fallback = ScriptedTTS([[pcm]])
+    now = [100.0]
+    adapter = CooldownFallbackTTSAdapter(
+        primary=primary,
+        fallback=fallback,
+        cooldown_seconds=60.0,
+        monotonic=lambda: now[0],
+    )
+
+    with pytest.raises(ProviderError, match="Fish unavailable"):
+        async for _chunk in adapter.synthesize("Failed Fish utterance"):
+            pass
+
+    assert fallback.calls == []
+    assert [chunk async for chunk in adapter.synthesize("Cooldown utterance")] == [pcm]
+    assert fallback.calls == ["Cooldown utterance"]
+
+    now[0] += 60.0
+    assert [chunk async for chunk in adapter.synthesize("Fish retry")] == [pcm]
+    assert primary.calls == ["Failed Fish utterance", "Fish retry"]
+
+
+async def test_fish_cancellation_does_not_open_fallback_cooldown():
+    pcm = PCMChunk(audio=b"\x01\x00", sample_rate=24000, channels=1)
+    primary = ScriptedTTS([asyncio.CancelledError(), [pcm]])
+    fallback = ScriptedTTS([[pcm]])
+    adapter = CooldownFallbackTTSAdapter(
+        primary=primary,
+        fallback=fallback,
+        cooldown_seconds=60.0,
+        monotonic=lambda: 100.0,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        async for _chunk in adapter.synthesize("Cancelled Fish utterance"):
+            pass
+
+    assert [chunk async for chunk in adapter.synthesize("Fish remains primary")] == [
+        pcm
+    ]
+    assert fallback.calls == []
+
+
+async def test_fish_fallback_closes_both_adapters_exactly_once():
+    primary = ScriptedTTS([])
+    fallback = ScriptedTTS([])
+    adapter = CooldownFallbackTTSAdapter(
+        primary=primary,
+        fallback=fallback,
+        cooldown_seconds=60.0,
+    )
+
+    await adapter.close()
+    await adapter.close()
+
+    assert primary.close_count == 1
+    assert fallback.close_count == 1
+
+
+async def test_game_companion_factory_selects_fish_with_openrouter_fallback():
+    settings = GameCompanionProviderSettings(
+        openrouter=OpenRouterProviderSettings(api_key="openrouter-test-secret"),
+        tts_provider="fish",
+        fish=FishTTSSettings(api_key="fish-test-secret"),
+    )
+
+    providers = create_game_companion_provider_set(settings)
+    try:
+        assert isinstance(providers.tts, CooldownFallbackTTSAdapter)
+        assert isinstance(providers.tts.primary, FishTTSAdapter)
+        assert isinstance(providers.tts.fallback, OpenRouterTTSAdapter)
+        assert providers.tts.cooldown_seconds == 60.0
+    finally:
+        await providers.close()
 
 
 def test_provider_factory_wraps_existing_openrouter_services():

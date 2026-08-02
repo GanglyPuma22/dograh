@@ -5,9 +5,10 @@ import inspect
 import json
 import math
 import os
+import time
 import uuid
 import wave
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any, Protocol
@@ -498,6 +499,46 @@ class FishTTSAdapter:
         await _close_async_resource(self._client)
 
 
+class CooldownFallbackTTSAdapter:
+    def __init__(
+        self,
+        *,
+        primary: TTSAdapter,
+        fallback: TTSAdapter,
+        cooldown_seconds: float,
+        monotonic: Callable[[], float] = time.monotonic,
+    ):
+        self.primary = primary
+        self.fallback = fallback
+        self.cooldown_seconds = cooldown_seconds
+        self._monotonic = monotonic
+        self._fallback_until = 0.0
+        self._closed = False
+
+    async def synthesize(self, text: str) -> AsyncIterator[PCMChunk]:
+        use_fallback = self._monotonic() < self._fallback_until
+        provider = self.fallback if use_fallback else self.primary
+        try:
+            async for chunk in provider.synthesize(text):
+                yield chunk
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            if not use_fallback:
+                self._fallback_until = self._monotonic() + self.cooldown_seconds
+            raise
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        await asyncio.gather(
+            _close_async_resource(self.primary),
+            _close_async_resource(self.fallback),
+            return_exceptions=True,
+        )
+
+
 def _parse_tool_call(fragment: dict[str, Any]) -> LLMToolCall:
     call_id = fragment["call_id"]
     name = fragment["name"]
@@ -573,4 +614,28 @@ def create_openrouter_provider_set(
         stt=OpenRouterSTTAdapter(stt_service),
         llm=OpenRouterLLMAdapter(llm_service),
         tts=OpenRouterTTSAdapter(tts_service),
+    )
+
+
+def create_game_companion_provider_set(
+    settings: GameCompanionProviderSettings | None = None,
+) -> ProviderSet:
+    if settings is None:
+        settings = GameCompanionProviderSettings.from_env()
+
+    openrouter = create_openrouter_provider_set(settings.openrouter)
+    if settings.tts_provider == "openrouter":
+        return openrouter
+    if settings.tts_provider != "fish" or settings.fish is None:
+        raise ProviderConfigurationError("Fish TTS settings are required")
+
+    fish = FishTTSAdapter(settings.fish)
+    return ProviderSet(
+        stt=openrouter.stt,
+        llm=openrouter.llm,
+        tts=CooldownFallbackTTSAdapter(
+            primary=fish,
+            fallback=openrouter.tts,
+            cooldown_seconds=settings.fish.fallback_cooldown_seconds,
+        ),
     )
