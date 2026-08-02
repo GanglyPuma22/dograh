@@ -44,6 +44,7 @@ from api.services.game_companion.providers import (
     ProviderSet,
     pcm_s16le_to_wav,
 )
+from api.services.game_companion.speech_text import normalize_speech_text
 
 OutboundEvent = ServerMessage | bytes
 EmitCallback = Callable[[OutboundEvent], Awaitable[None]]
@@ -714,9 +715,10 @@ class CompanionSession:
         audio_open = False
         output_audio_bytes = 0
         tts_started_at = self._monotonic()
+        speech_text = normalize_speech_text(text)
         try:
             async with asyncio.timeout(self.timeouts.tts):
-                async for chunk in self.providers.tts.synthesize(text):
+                async for chunk in self.providers.tts.synthesize(speech_text):
                     if not self._owns(runtime):
                         return
                     _validate_tts_chunk(chunk)
