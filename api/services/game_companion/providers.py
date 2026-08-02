@@ -3,6 +3,7 @@
 import asyncio
 import inspect
 import json
+import math
 import os
 import uuid
 import wave
@@ -18,6 +19,17 @@ DEFAULT_STT_MODEL = "qwen/qwen3-asr-flash-2026-02-10"
 DEFAULT_TTS_MODEL = "x-ai/grok-voice-tts-1.0"
 DEFAULT_TTS_VOICE = "eve"
 DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+DEFAULT_TTS_PROVIDER = "openrouter"
+DEFAULT_FISH_BASE_URL = "https://api.fish.audio"
+DEFAULT_FISH_MODEL = "s2.1-pro-free"
+DEFAULT_FISH_SAMPLE_RATE = 24000
+DEFAULT_FISH_LATENCY = "balanced"
+DEFAULT_FISH_CHUNK_LENGTH = 150
+DEFAULT_FISH_REQUEST_TIMEOUT_SECONDS = 30.0
+DEFAULT_FISH_FALLBACK_COOLDOWN_SECONDS = 60.0
+FISH_MODELS = frozenset({"s2.1-pro-free", "s2.1-pro"})
+FISH_LATENCY_MODES = frozenset({"low", "balanced", "normal"})
+TTS_PROVIDERS = frozenset({"openrouter", "fish"})
 MAX_LLM_RESPONSE_BYTES = 64 * 1024
 MAX_ANALYSIS_LLM_RESPONSE_BYTES = 16 * 1024
 MAX_LLM_TOOL_FRAGMENTS = 256
@@ -104,6 +116,167 @@ class OpenRouterProviderSettings:
             tts_voice=values.get("DOGRAH_GAME_COMPANION_TTS_VOICE", DEFAULT_TTS_VOICE),
             base_url=values.get("OPENROUTER_BASE_URL", DEFAULT_OPENROUTER_BASE_URL),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class FishTTSSettings:
+    api_key: str
+    base_url: str = DEFAULT_FISH_BASE_URL
+    model: str = DEFAULT_FISH_MODEL
+    reference_id: str | None = None
+    sample_rate: int = DEFAULT_FISH_SAMPLE_RATE
+    latency: str = DEFAULT_FISH_LATENCY
+    chunk_length: int = DEFAULT_FISH_CHUNK_LENGTH
+    request_timeout_seconds: float = DEFAULT_FISH_REQUEST_TIMEOUT_SECONDS
+    fallback_cooldown_seconds: float = DEFAULT_FISH_FALLBACK_COOLDOWN_SECONDS
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str] | None = None) -> "FishTTSSettings":
+        values = os.environ if environ is None else environ
+        api_key = values.get("FISH_API_KEY", "").strip()
+        if not api_key:
+            raise ProviderConfigurationError(
+                "FISH_API_KEY is required when Fish TTS is selected"
+            )
+
+        base_url = values.get(
+            "DOGRAH_GAME_COMPANION_FISH_BASE_URL", DEFAULT_FISH_BASE_URL
+        ).strip()
+        if not base_url.startswith(("http://", "https://")):
+            raise ProviderConfigurationError("Fish base URL must use http or https")
+
+        model = values.get(
+            "DOGRAH_GAME_COMPANION_FISH_MODEL", DEFAULT_FISH_MODEL
+        ).strip()
+        if model not in FISH_MODELS:
+            raise ProviderConfigurationError(
+                "Fish model must be s2.1-pro-free or s2.1-pro"
+            )
+
+        sample_rate = _bounded_env_int(
+            values,
+            "DOGRAH_GAME_COMPANION_FISH_SAMPLE_RATE",
+            DEFAULT_FISH_SAMPLE_RATE,
+            label="Fish sample rate",
+            minimum=DEFAULT_FISH_SAMPLE_RATE,
+            maximum=DEFAULT_FISH_SAMPLE_RATE,
+        )
+        latency = values.get(
+            "DOGRAH_GAME_COMPANION_FISH_LATENCY", DEFAULT_FISH_LATENCY
+        ).strip()
+        if latency not in FISH_LATENCY_MODES:
+            raise ProviderConfigurationError(
+                "Fish latency must be low, balanced, or normal"
+            )
+        chunk_length = _bounded_env_int(
+            values,
+            "DOGRAH_GAME_COMPANION_FISH_CHUNK_LENGTH",
+            DEFAULT_FISH_CHUNK_LENGTH,
+            label="Fish chunk length",
+            minimum=100,
+            maximum=300,
+        )
+        request_timeout_seconds = _bounded_env_float(
+            values,
+            "DOGRAH_GAME_COMPANION_FISH_REQUEST_TIMEOUT_SECONDS",
+            DEFAULT_FISH_REQUEST_TIMEOUT_SECONDS,
+            label="Fish request timeout",
+            minimum=1.0,
+            maximum=120.0,
+        )
+        fallback_cooldown_seconds = _bounded_env_float(
+            values,
+            "DOGRAH_GAME_COMPANION_FISH_FALLBACK_COOLDOWN_SECONDS",
+            DEFAULT_FISH_FALLBACK_COOLDOWN_SECONDS,
+            label="Fish fallback cooldown",
+            minimum=1.0,
+            maximum=600.0,
+        )
+        reference_id = (
+            values.get("DOGRAH_GAME_COMPANION_FISH_REFERENCE_ID", "").strip() or None
+        )
+        return cls(
+            api_key=api_key,
+            base_url=base_url.rstrip("/"),
+            model=model,
+            reference_id=reference_id,
+            sample_rate=sample_rate,
+            latency=latency,
+            chunk_length=chunk_length,
+            request_timeout_seconds=request_timeout_seconds,
+            fallback_cooldown_seconds=fallback_cooldown_seconds,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class GameCompanionProviderSettings:
+    openrouter: OpenRouterProviderSettings
+    tts_provider: str = DEFAULT_TTS_PROVIDER
+    fish: FishTTSSettings | None = None
+
+    @classmethod
+    def from_env(
+        cls, environ: Mapping[str, str] | None = None
+    ) -> "GameCompanionProviderSettings":
+        values = os.environ if environ is None else environ
+        openrouter = OpenRouterProviderSettings.from_env(values)
+        tts_provider = (
+            values.get("DOGRAH_GAME_COMPANION_TTS_PROVIDER", DEFAULT_TTS_PROVIDER)
+            .strip()
+            .lower()
+        )
+        if tts_provider not in TTS_PROVIDERS:
+            raise ProviderConfigurationError(
+                "game companion TTS provider must be openrouter or fish"
+            )
+        fish = FishTTSSettings.from_env(values) if tts_provider == "fish" else None
+        return cls(
+            openrouter=openrouter,
+            tts_provider=tts_provider,
+            fish=fish,
+        )
+
+
+def _bounded_env_int(
+    values: Mapping[str, str],
+    name: str,
+    default: int,
+    *,
+    label: str,
+    minimum: int,
+    maximum: int,
+) -> int:
+    raw_value = values.get(name, str(default)).strip()
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ProviderConfigurationError(f"{label} must be an integer") from exc
+    if value < minimum or value > maximum:
+        raise ProviderConfigurationError(
+            f"{label} must be between {minimum} and {maximum}"
+        )
+    return value
+
+
+def _bounded_env_float(
+    values: Mapping[str, str],
+    name: str,
+    default: float,
+    *,
+    label: str,
+    minimum: float,
+    maximum: float,
+) -> float:
+    raw_value = values.get(name, str(default)).strip()
+    try:
+        value = float(raw_value)
+    except ValueError as exc:
+        raise ProviderConfigurationError(f"{label} must be a number") from exc
+    if not math.isfinite(value) or value < minimum or value > maximum:
+        raise ProviderConfigurationError(
+            f"{label} must be between {minimum:g} and {maximum:g} seconds"
+        )
+    return value
 
 
 def pcm_s16le_to_wav(

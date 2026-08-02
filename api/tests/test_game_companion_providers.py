@@ -5,6 +5,8 @@ from types import SimpleNamespace
 import pytest
 
 from api.services.game_companion.providers import (
+    FishTTSSettings,
+    GameCompanionProviderSettings,
     OpenRouterLLMAdapter,
     OpenRouterProviderSettings,
     OpenRouterSTTAdapter,
@@ -215,6 +217,123 @@ def test_provider_settings_use_explicit_companion_defaults():
 def test_provider_settings_require_openrouter_key():
     with pytest.raises(ProviderConfigurationError, match="OPENROUTER_API_KEY"):
         OpenRouterProviderSettings.from_env({})
+
+
+def test_game_companion_settings_default_to_openrouter_without_fish_credentials():
+    settings = GameCompanionProviderSettings.from_env(
+        {"OPENROUTER_API_KEY": "openrouter-test-secret"}
+    )
+
+    assert settings.tts_provider == "openrouter"
+    assert settings.openrouter.api_key == "openrouter-test-secret"
+    assert settings.fish is None
+
+
+def test_game_companion_settings_load_direct_fish_defaults_when_selected():
+    settings = GameCompanionProviderSettings.from_env(
+        {
+            "OPENROUTER_API_KEY": "openrouter-test-secret",
+            "DOGRAH_GAME_COMPANION_TTS_PROVIDER": "fish",
+            "FISH_API_KEY": "fish-test-secret",
+        }
+    )
+
+    assert settings.tts_provider == "fish"
+    assert settings.fish == FishTTSSettings(
+        api_key="fish-test-secret",
+        base_url="https://api.fish.audio",
+        model="s2.1-pro-free",
+        reference_id=None,
+        sample_rate=24000,
+        latency="balanced",
+        chunk_length=150,
+        request_timeout_seconds=30.0,
+        fallback_cooldown_seconds=60.0,
+    )
+
+
+def test_game_companion_settings_keep_paid_fish_model_explicitly_configurable():
+    settings = GameCompanionProviderSettings.from_env(
+        {
+            "OPENROUTER_API_KEY": "openrouter-test-secret",
+            "DOGRAH_GAME_COMPANION_TTS_PROVIDER": "fish",
+            "FISH_API_KEY": "fish-test-secret",
+            "DOGRAH_GAME_COMPANION_FISH_MODEL": "s2.1-pro",
+            "DOGRAH_GAME_COMPANION_FISH_REFERENCE_ID": "voice-reference-id",
+        }
+    )
+
+    assert settings.fish is not None
+    assert settings.fish.model == "s2.1-pro"
+    assert settings.fish.reference_id == "voice-reference-id"
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "match"),
+    [
+        ("DOGRAH_GAME_COMPANION_FISH_SAMPLE_RATE", "44100", "sample rate"),
+        ("DOGRAH_GAME_COMPANION_FISH_LATENCY", "fastest", "latency"),
+        ("DOGRAH_GAME_COMPANION_FISH_CHUNK_LENGTH", "99", "chunk length"),
+        ("DOGRAH_GAME_COMPANION_FISH_CHUNK_LENGTH", "301", "chunk length"),
+        ("DOGRAH_GAME_COMPANION_FISH_REQUEST_TIMEOUT_SECONDS", "0", "timeout"),
+        (
+            "DOGRAH_GAME_COMPANION_FISH_REQUEST_TIMEOUT_SECONDS",
+            "121",
+            "timeout",
+        ),
+        (
+            "DOGRAH_GAME_COMPANION_FISH_FALLBACK_COOLDOWN_SECONDS",
+            "0",
+            "cooldown",
+        ),
+        (
+            "DOGRAH_GAME_COMPANION_FISH_FALLBACK_COOLDOWN_SECONDS",
+            "601",
+            "cooldown",
+        ),
+        ("DOGRAH_GAME_COMPANION_FISH_MODEL", "s2-pro", "model"),
+    ],
+)
+def test_fish_settings_reject_invalid_bounded_values_without_leaking_secrets(
+    name, value, match
+):
+    fish_secret = "fish-secret-must-not-leak"
+    environment = {
+        "OPENROUTER_API_KEY": "openrouter-secret-must-not-leak",
+        "DOGRAH_GAME_COMPANION_TTS_PROVIDER": "fish",
+        "FISH_API_KEY": fish_secret,
+        name: value,
+    }
+
+    with pytest.raises(ProviderConfigurationError, match=match) as exc_info:
+        GameCompanionProviderSettings.from_env(environment)
+
+    assert fish_secret not in str(exc_info.value)
+    assert environment["OPENROUTER_API_KEY"] not in str(exc_info.value)
+
+
+def test_game_companion_settings_require_fish_key_only_when_fish_is_selected():
+    with pytest.raises(ProviderConfigurationError, match="FISH_API_KEY"):
+        GameCompanionProviderSettings.from_env(
+            {
+                "OPENROUTER_API_KEY": "openrouter-test-secret",
+                "DOGRAH_GAME_COMPANION_TTS_PROVIDER": "fish",
+            }
+        )
+
+
+def test_game_companion_settings_reject_unknown_tts_provider_without_secrets():
+    secret = "openrouter-secret-must-not-leak"
+
+    with pytest.raises(ProviderConfigurationError, match="TTS provider") as exc_info:
+        GameCompanionProviderSettings.from_env(
+            {
+                "OPENROUTER_API_KEY": secret,
+                "DOGRAH_GAME_COMPANION_TTS_PROVIDER": "unknown",
+            }
+        )
+
+    assert secret not in str(exc_info.value)
 
 
 def test_provider_factory_wraps_existing_openrouter_services():
