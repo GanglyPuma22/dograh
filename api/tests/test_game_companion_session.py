@@ -353,6 +353,39 @@ async def test_captions_precede_assistant_audio():
     await session.close()
 
 
+async def test_session_normalizes_markdown_emphasis_only_for_tts():
+    response_text = "Report: (**engines stable**), *Captain*; proceed."
+    tts = FakeTTS()
+    metrics = []
+    session = CompanionSession(
+        providers=fake_providers(
+            llm=FakeLLM(results=[LLMResult(text=response_text)]),
+            tts=tts,
+        ),
+        metric=lambda event, fields: metrics.append((event, fields)),
+    )
+    await session.start_turn("turn-markup", {})
+    await session.append_audio("turn-markup", b"\x00\x00")
+    await session.end_turn("turn-markup")
+    await session.wait_for_turn("turn-markup")
+
+    assistant_caption = next(
+        event
+        for event in session.outbound_events
+        if isinstance(event, Caption) and event.speaker == "assistant"
+    )
+    assert assistant_caption.text == response_text
+    assert tts.calls == ["Report: (engines stable), Captain; proceed."]
+
+    event_types = [type(event) for event in session.outbound_events]
+    assert event_types.index(AudioStart) < event_types.index(bytes)
+    assert event_types.index(bytes) < event_types.index(AudioEnd)
+    metric_names = [event for event, _fields in metrics]
+    assert "first_audio" in metric_names
+    assert "tts_complete" in metric_names
+    await session.close()
+
+
 async def test_tool_call_pauses_final_narration_until_typed_result():
     llm = FakeLLM(
         results=[
