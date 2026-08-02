@@ -27,7 +27,7 @@ from api.services.game_companion.protocol import (
     decode_control_json,
     parse_client_message,
 )
-from api.services.game_companion.providers import create_openrouter_provider_set
+from api.services.game_companion.providers import create_game_companion_provider_set
 from api.services.game_companion.session import (
     CompanionSession,
     EmitCallback,
@@ -44,7 +44,7 @@ _OVERSIZE_CODES = {
 
 
 def create_companion_session(emit: EmitCallback) -> CompanionSession:
-    return CompanionSession(providers=create_openrouter_provider_set(), emit=emit)
+    return CompanionSession(providers=create_game_companion_provider_set(), emit=emit)
 
 
 @router.websocket("/ws")

@@ -26,6 +26,7 @@ from api.services.game_companion.protocol import (
     TurnStart,
 )
 from api.services.game_companion.providers import (
+    CooldownFallbackTTSAdapter,
     LLMResult,
     LLMToolCall,
     OpenRouterLLMAdapter,
@@ -578,6 +579,52 @@ async def test_tts_failure_closes_audio_then_emits_recoverable_error():
     assert event_types.index(AudioStart) < event_types.index(bytes)
     assert event_types.index(bytes) < event_types.index(AudioEnd)
     assert event_types.index(AudioEnd) < event_types.index(ErrorMessage)
+    await session.close()
+
+
+async def test_fish_failure_is_recoverable_and_openrouter_resumes_next_turn():
+    class FailedFishTTS(RecordingTTS):
+        async def synthesize(self, text):
+            self.calls.append(text)
+            raise ProviderError("Fish unavailable")
+            yield  # pragma: no cover - keeps this an async generator.
+
+    fish = FailedFishTTS()
+    openrouter = RecordingTTS()
+    tts = CooldownFallbackTTSAdapter(
+        primary=fish,
+        fallback=openrouter,
+        cooldown_seconds=60.0,
+        monotonic=lambda: 100.0,
+    )
+    session = CompanionSession(
+        providers=providers(llm=StaticLLM(), tts=tts),
+    )
+
+    await begin_turn(session, "fish-turn")
+    await session.wait_for_turn("fish-turn")
+
+    first_error = next(
+        event
+        for event in session.outbound_events
+        if isinstance(event, ErrorMessage) and event.turn_id == "fish-turn"
+    )
+    assert first_error.code == "provider_failure"
+    assert first_error.recoverable is True
+    assert not any(
+        isinstance(event, AudioStart) and event.turn_id == "fish-turn"
+        for event in session.outbound_events
+    )
+
+    await begin_turn(session, "fallback-turn")
+    await session.wait_for_turn("fallback-turn")
+
+    assert fish.calls == ["Course set."]
+    assert openrouter.calls == ["Course set."]
+    assert any(
+        isinstance(event, AudioStart) and event.turn_id == "fallback-turn"
+        for event in session.outbound_events
+    )
     await session.close()
 
 
