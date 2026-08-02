@@ -1,10 +1,13 @@
+import asyncio
 import wave
 from io import BytesIO
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from api.services.game_companion.providers import (
+    FishTTSAdapter,
     FishTTSSettings,
     GameCompanionProviderSettings,
     OpenRouterLLMAdapter,
@@ -17,6 +20,57 @@ from api.services.game_companion.providers import (
     create_openrouter_provider_set,
     pcm_s16le_to_wav,
 )
+
+
+class FakeFishResponse:
+    def __init__(self, chunks=(), *, status_code=200, stream_error=None):
+        self.chunks = list(chunks)
+        self.status_code = status_code
+        self.stream_error = stream_error
+        self.enter_count = 0
+        self.exit_count = 0
+        self.completed = False
+        self.iterated = False
+
+    async def aiter_bytes(self):
+        self.iterated = True
+        try:
+            for chunk in self.chunks:
+                yield chunk
+            if self.stream_error is not None:
+                raise self.stream_error
+        finally:
+            self.completed = True
+
+
+class FakeFishResponseContext:
+    def __init__(self, response, enter_error=None):
+        self.response = response
+        self.enter_error = enter_error
+
+    async def __aenter__(self):
+        self.response.enter_count += 1
+        if self.enter_error is not None:
+            raise self.enter_error
+        return self.response
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        self.response.exit_count += 1
+
+
+class FakeFishHTTPClient:
+    def __init__(self, response, *, enter_error=None):
+        self.response = response
+        self.enter_error = enter_error
+        self.calls = []
+        self.close_count = 0
+
+    def stream(self, method, url, **kwargs):
+        self.calls.append((method, url, kwargs))
+        return FakeFishResponseContext(self.response, self.enter_error)
+
+    async def aclose(self):
+        self.close_count += 1
 
 
 def test_pcm_s16le_to_wav_wraps_complete_mono_audio():
@@ -334,6 +388,176 @@ def test_game_companion_settings_reject_unknown_tts_provider_without_secrets():
         )
 
     assert secret not in str(exc_info.value)
+
+
+async def test_fish_tts_streams_first_pcm_chunk_before_response_completes():
+    response = FakeFishResponse([b"\x01\x00", b"\x02\x00"])
+    client = FakeFishHTTPClient(response)
+    adapter = FishTTSAdapter(
+        FishTTSSettings(api_key="fish-test-secret"),
+        client=client,
+    )
+    stream = adapter.synthesize("Course is set.")
+
+    first = await anext(stream)
+
+    assert first.audio == b"\x01\x00"
+    assert first.sample_rate == 24000
+    assert first.channels == 1
+    assert response.completed is False
+    await stream.aclose()
+    assert response.exit_count == 1
+
+
+async def test_fish_tts_sends_bounded_pcm_request_without_logging_or_buffering():
+    response = FakeFishResponse([b"\x01\x00"])
+    client = FakeFishHTTPClient(response)
+    settings = FishTTSSettings(
+        api_key="fish-test-secret",
+        reference_id="voice-reference-id",
+        latency="low",
+        chunk_length=100,
+        request_timeout_seconds=12.0,
+    )
+    adapter = FishTTSAdapter(settings, client=client)
+
+    chunks = [chunk async for chunk in adapter.synthesize("Private response text")]
+
+    assert [chunk.audio for chunk in chunks] == [b"\x01\x00"]
+    assert client.calls == [
+        (
+            "POST",
+            "https://api.fish.audio/v1/tts",
+            {
+                "headers": {
+                    "Authorization": "Bearer fish-test-secret",
+                    "model": "s2.1-pro-free",
+                    "Accept": "application/octet-stream",
+                },
+                "json": {
+                    "text": "Private response text",
+                    "format": "pcm",
+                    "sample_rate": 24000,
+                    "latency": "low",
+                    "chunk_length": 100,
+                    "normalize": True,
+                    "reference_id": "voice-reference-id",
+                },
+                "timeout": 12.0,
+            },
+        )
+    ]
+
+
+async def test_fish_tts_repairs_arbitrary_pcm16_http_chunk_boundaries():
+    response = FakeFishResponse([b"\x01", b"\x00\x02", b"\x00\x03\x00"])
+    adapter = FishTTSAdapter(
+        FishTTSSettings(api_key="fish-test-secret"),
+        client=FakeFishHTTPClient(response),
+    )
+
+    chunks = [chunk async for chunk in adapter.synthesize("Boundary test")]
+
+    assert b"".join(chunk.audio for chunk in chunks) == (b"\x01\x00\x02\x00\x03\x00")
+    assert all(len(chunk.audio) % 2 == 0 for chunk in chunks)
+
+
+async def test_fish_tts_rejects_http_failure_without_reading_or_exposing_body():
+    response = FakeFishResponse(
+        [b'{"message":"private provider body"}'], status_code=429
+    )
+    client = FakeFishHTTPClient(response)
+    adapter = FishTTSAdapter(
+        FishTTSSettings(api_key="fish-test-secret"),
+        client=client,
+    )
+
+    with pytest.raises(ProviderError, match="status 429") as exc_info:
+        async for _chunk in adapter.synthesize("Private response text"):
+            pass
+
+    assert response.iterated is False
+    assert response.exit_count == 1
+    assert "private provider body" not in str(exc_info.value)
+    assert "fish-test-secret" not in str(exc_info.value)
+    assert "Private response text" not in str(exc_info.value)
+
+
+async def test_fish_tts_maps_request_timeout_to_secret_safe_provider_error():
+    response = FakeFishResponse()
+    client = FakeFishHTTPClient(
+        response,
+        enter_error=httpx.ReadTimeout("private timeout detail"),
+    )
+    adapter = FishTTSAdapter(
+        FishTTSSettings(api_key="fish-test-secret"),
+        client=client,
+    )
+
+    with pytest.raises(ProviderError, match="timed out") as exc_info:
+        async for _chunk in adapter.synthesize("Private response text"):
+            pass
+
+    assert "private timeout detail" not in str(exc_info.value)
+    assert "fish-test-secret" not in str(exc_info.value)
+
+
+async def test_fish_tts_rejects_empty_response():
+    adapter = FishTTSAdapter(
+        FishTTSSettings(api_key="fish-test-secret"),
+        client=FakeFishHTTPClient(FakeFishResponse()),
+    )
+
+    with pytest.raises(ProviderError, match="no audio"):
+        async for _chunk in adapter.synthesize("Empty response"):
+            pass
+
+
+async def test_fish_tts_rejects_incomplete_final_pcm_sample():
+    adapter = FishTTSAdapter(
+        FishTTSSettings(api_key="fish-test-secret"),
+        client=FakeFishHTTPClient(FakeFishResponse([b"\x01\x00\x02"])),
+    )
+
+    stream = adapter.synthesize("Incomplete sample")
+    first = await anext(stream)
+
+    assert first.audio == b"\x01\x00"
+    with pytest.raises(ProviderError, match="incomplete PCM sample"):
+        await anext(stream)
+
+
+async def test_fish_tts_propagates_cancellation_and_closes_response():
+    response = FakeFishResponse(stream_error=asyncio.CancelledError())
+    adapter = FishTTSAdapter(
+        FishTTSSettings(api_key="fish-test-secret"),
+        client=FakeFishHTTPClient(response),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        async for _chunk in adapter.synthesize("Cancelled response"):
+            pass
+
+    assert response.exit_count == 1
+
+
+async def test_fish_tts_closes_response_and_http_client_exactly_once():
+    response = FakeFishResponse([b"\x01\x00"])
+    client = FakeFishHTTPClient(response)
+    adapter = FishTTSAdapter(
+        FishTTSSettings(api_key="fish-test-secret"),
+        client=client,
+    )
+
+    assert [chunk.audio async for chunk in adapter.synthesize("Close resources")] == [
+        b"\x01\x00"
+    ]
+    await adapter.close()
+    await adapter.close()
+
+    assert response.enter_count == 1
+    assert response.exit_count == 1
+    assert client.close_count == 1
 
 
 def test_provider_factory_wraps_existing_openrouter_services():
