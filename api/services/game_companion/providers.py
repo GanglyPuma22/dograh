@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from typing import Any, Protocol
 
+import httpx
 from pydantic import JsonValue
 
 DEFAULT_LLM_MODEL = "deepseek/deepseek-v4-flash"
@@ -421,6 +422,80 @@ class OpenRouterTTSAdapter:
 
     async def close(self) -> None:
         await _close_async_resource(self.service._client)
+
+
+class FishTTSAdapter:
+    def __init__(self, settings: FishTTSSettings, *, client: Any | None = None):
+        self.settings = settings
+        self._client = client or httpx.AsyncClient(
+            timeout=settings.request_timeout_seconds
+        )
+        self._closed = False
+
+    async def synthesize(self, text: str) -> AsyncIterator[PCMChunk]:
+        payload: dict[str, JsonValue] = {
+            "text": text,
+            "format": "pcm",
+            "sample_rate": self.settings.sample_rate,
+            "latency": self.settings.latency,
+            "chunk_length": self.settings.chunk_length,
+            "normalize": True,
+        }
+        if self.settings.reference_id is not None:
+            payload["reference_id"] = self.settings.reference_id
+
+        try:
+            async with self._client.stream(
+                "POST",
+                f"{self.settings.base_url}/v1/tts",
+                headers={
+                    "Authorization": f"Bearer {self.settings.api_key}",
+                    "model": self.settings.model,
+                    "Accept": "application/octet-stream",
+                },
+                json=payload,
+                timeout=self.settings.request_timeout_seconds,
+            ) as response:
+                if response.status_code < 200 or response.status_code >= 300:
+                    raise ProviderError(
+                        f"Fish TTS request failed with status {response.status_code}"
+                    )
+
+                trailing_byte = b""
+                emitted_audio = False
+                async for http_chunk in response.aiter_bytes():
+                    if not http_chunk:
+                        continue
+                    audio = trailing_byte + bytes(http_chunk)
+                    complete_length = len(audio) - (len(audio) % 2)
+                    trailing_byte = audio[complete_length:]
+                    if complete_length == 0:
+                        continue
+                    emitted_audio = True
+                    yield PCMChunk(
+                        audio=audio[:complete_length],
+                        sample_rate=self.settings.sample_rate,
+                        channels=1,
+                    )
+
+                if trailing_byte:
+                    raise ProviderError("Fish TTS returned an incomplete PCM sample")
+                if not emitted_audio:
+                    raise ProviderError("Fish TTS returned no audio")
+        except asyncio.CancelledError:
+            raise
+        except ProviderError:
+            raise
+        except httpx.TimeoutException as exc:
+            raise ProviderError("Fish TTS request timed out") from exc
+        except httpx.HTTPError as exc:
+            raise ProviderError("Fish TTS request failed") from exc
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        await _close_async_resource(self._client)
 
 
 def _parse_tool_call(fragment: dict[str, Any]) -> LLMToolCall:
