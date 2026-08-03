@@ -27,9 +27,17 @@ from api.services.game_companion.providers import (
 
 
 class FakeFishResponse:
-    def __init__(self, chunks=(), *, status_code=200, stream_error=None):
+    def __init__(
+        self,
+        chunks=(),
+        *,
+        status_code=200,
+        stream_error=None,
+        content_type="application/octet-stream",
+    ):
         self.chunks = list(chunks)
         self.status_code = status_code
+        self.headers = {"content-type": content_type}
         self.stream_error = stream_error
         self.enter_count = 0
         self.exit_count = 0
@@ -590,6 +598,22 @@ async def test_fish_tts_rejects_http_failure_without_reading_or_exposing_body():
     assert "private provider body" not in str(exc_info.value)
     assert "fish-test-secret" not in str(exc_info.value)
     assert "Private response text" not in str(exc_info.value)
+
+
+async def test_fish_tts_rejects_non_audio_success_response_before_streaming():
+    response = FakeFishResponse(
+        [b'{"error":"proxy failure"}'],
+        content_type="application/json; charset=utf-8",
+    )
+    adapter = FishTTSAdapter(
+        FishTTSSettings(api_key="fish-test-secret"),
+        client=FakeFishHTTPClient(response),
+    )
+
+    with pytest.raises(ProviderError, match="content type"):
+        _ = [chunk async for chunk in adapter.synthesize("Hello")]
+
+    assert response.iterated is False
 
 
 async def test_fish_tts_maps_request_timeout_to_secret_safe_provider_error():
