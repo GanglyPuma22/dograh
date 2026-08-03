@@ -41,6 +41,9 @@ def test_aster_guidance_keeps_status_read_only_and_actions_game_owned():
     assert "approximate" in prompt
     assert "without calling a tool" in prompt
     assert "salvage decides" in prompt
+    assert "accepted=false" in prompt
+    assert "gameplay denial" in prompt
+    assert "protocol failure" in prompt
 
 
 def test_gameplay_tool_descriptions_request_semantic_actions_without_policy():

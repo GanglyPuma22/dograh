@@ -524,6 +524,257 @@ async def test_tool_call_pauses_final_narration_until_typed_result():
     await session.close()
 
 
+@pytest.mark.parametrize(
+    ("name", "result", "narration"),
+    [
+        (
+            "request_assisted_landing",
+            {
+                "accepted": True,
+                "state": "assisted_landing_active",
+                "code": "landing_started",
+                "message": "Assisted landing started.",
+            },
+            "Assisted landing is active.",
+        ),
+        (
+            "request_supercruise",
+            {
+                "accepted": False,
+                "state": "manual_flight",
+                "code": "no_target",
+                "message": "Select a destination before engaging Supercruise.",
+            },
+            "Supercruise was denied because no destination is selected.",
+        ),
+        (
+            "cancel_supercruise",
+            {
+                "accepted": True,
+                "state": "manual_flight",
+                "code": "supercruise_already_inactive",
+                "message": "Supercruise is already inactive.",
+            },
+            "Supercruise is already inactive.",
+        ),
+    ],
+)
+async def test_gameplay_action_results_are_typed_and_narrated(name, result, narration):
+    llm = FakeLLM(
+        [
+            LLMResult(
+                tool_calls=(
+                    LLMToolCall(call_id="call-action", name=name, arguments={}),
+                )
+            ),
+            LLMResult(text=narration),
+        ]
+    )
+    tts = FakeTTS()
+    session = CompanionSession(providers=fake_providers(llm=llm, tts=tts))
+    await session.start_turn("turn-action", {})
+    await session.append_audio("turn-action", b"\x00\x00")
+    await session.end_turn("turn-action")
+
+    tool_call = await wait_for_event(session, ToolCall)
+    assert tool_call.name == name
+    assert tool_call.arguments == {}
+    assert tts.calls == []
+
+    await session.submit_tool_result(
+        ToolResult(
+            type="tool_result",
+            turn_id="turn-action",
+            call_id="call-action",
+            ok=True,
+            result=result,
+        )
+    )
+    await session.wait_for_turn("turn-action")
+
+    assert tts.calls == [narration]
+    tool_content = json.loads(llm.calls[1]["messages"][-1]["content"])
+    assert tool_content == {"ok": True, "result": result, "error": None}
+    await session.close()
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "request_assisted_landing",
+        "request_supercruise",
+        "cancel_supercruise",
+    ],
+)
+async def test_gameplay_action_arguments_must_be_empty_before_emission(name):
+    llm = FakeLLM(
+        [
+            LLMResult(
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="call-action",
+                        name=name,
+                        arguments={"override": True},
+                    ),
+                )
+            )
+        ]
+    )
+    session = CompanionSession(providers=fake_providers(llm=llm))
+    await session.start_turn("turn-action", {})
+    await session.append_audio("turn-action", b"\x00\x00")
+    await session.end_turn("turn-action")
+    await session.wait_for_turn("turn-action")
+
+    assert not any(isinstance(event, ToolCall) for event in session.outbound_events)
+    assert any(
+        isinstance(event, ErrorMessage) and event.code == "provider_failure"
+        for event in session.outbound_events
+    )
+    await session.close()
+
+
+@pytest.mark.parametrize(
+    "invalid_result",
+    [
+        {
+            "accepted": "yes",
+            "state": "manual_flight",
+            "code": "no_target",
+            "message": "No target.",
+        },
+        {
+            "accepted": False,
+            "state": "x" * 129,
+            "code": "no_target",
+            "message": "No target.",
+        },
+        {
+            "accepted": False,
+            "state": "manual_flight",
+            "code": "no_target",
+            "message": "x" * 1025,
+        },
+        {
+            "accepted": False,
+            "state": "manual_flight",
+            "code": "no_target",
+            "message": "No target.",
+            "extra": True,
+        },
+    ],
+)
+async def test_gameplay_action_result_shape_is_bounded_and_exact(invalid_result):
+    llm = FakeLLM(
+        [
+            LLMResult(
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="call-action",
+                        name="request_supercruise",
+                        arguments={},
+                    ),
+                )
+            ),
+            LLMResult(text="Supercruise remains inactive."),
+        ]
+    )
+    session = CompanionSession(providers=fake_providers(llm=llm))
+    await session.start_turn("turn-action", {})
+    await session.append_audio("turn-action", b"\x00\x00")
+    await session.end_turn("turn-action")
+    await wait_for_event(session, ToolCall)
+
+    with pytest.raises(ProtocolError, match="invalid_tool_result"):
+        await session.submit_tool_result(
+            ToolResult(
+                type="tool_result",
+                turn_id="turn-action",
+                call_id="call-action",
+                ok=True,
+                result=invalid_result,
+            )
+        )
+
+    await session.submit_tool_result(
+        ToolResult(
+            type="tool_result",
+            turn_id="turn-action",
+            call_id="call-action",
+            ok=True,
+            result={
+                "accepted": False,
+                "state": "manual_flight",
+                "code": "no_target",
+                "message": "Select a destination first.",
+            },
+        )
+    )
+    await session.wait_for_turn("turn-action")
+    await session.close()
+
+
+async def test_gameplay_action_result_requires_matching_turn_and_call_ids():
+    llm = FakeLLM(
+        [
+            LLMResult(
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="call-action",
+                        name="request_supercruise",
+                        arguments={},
+                    ),
+                )
+            ),
+            LLMResult(text="Supercruise is armed."),
+        ]
+    )
+    session = CompanionSession(providers=fake_providers(llm=llm))
+    await session.start_turn("turn-action", {})
+    await session.append_audio("turn-action", b"\x00\x00")
+    await session.end_turn("turn-action")
+    await wait_for_event(session, ToolCall)
+
+    result = {
+        "accepted": True,
+        "state": "supercruise_armed",
+        "code": "supercruise_armed",
+        "message": "Supercruise armed.",
+    }
+    with pytest.raises(ProtocolError, match="stale_turn"):
+        await session.submit_tool_result(
+            ToolResult(
+                type="tool_result",
+                turn_id="turn-stale",
+                call_id="call-action",
+                ok=True,
+                result=result,
+            )
+        )
+    with pytest.raises(ProtocolError, match="unexpected_tool_result"):
+        await session.submit_tool_result(
+            ToolResult(
+                type="tool_result",
+                turn_id="turn-action",
+                call_id="call-stale",
+                ok=True,
+                result=result,
+            )
+        )
+
+    await session.submit_tool_result(
+        ToolResult(
+            type="tool_result",
+            turn_id="turn-action",
+            call_id="call-action",
+            ok=True,
+            result=result,
+        )
+    )
+    await session.wait_for_turn("turn-action")
+    await session.close()
+
+
 async def test_late_tool_result_after_timeout_is_discarded():
     llm = FakeLLM(
         [
