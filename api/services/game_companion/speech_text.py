@@ -18,6 +18,8 @@ def _can_open(text: str, index: int, width: int) -> bool:
 def _can_close(text: str, index: int, width: int, opener: int) -> bool:
     if index <= opener + width:
         return False
+    if text[index - 1] == "\\":
+        return False
     content_end = text[index - 1]
     right_index = index + width
     right = text[right_index] if right_index < len(text) else ""
@@ -38,6 +40,9 @@ def _strip_paired_markers(text: str, width: int) -> str:
             continue
         if text[index : index + width] != "*" * width:
             index += 1
+            continue
+        if index and text[index - 1] == "\\":
+            index += width
             continue
 
         if opener is not None and _can_close(text, index, width, opener):
