@@ -1,3 +1,4 @@
+from time import perf_counter
 from types import SimpleNamespace
 
 import pytest
@@ -79,6 +80,10 @@ class RecordingFishClient:
         ("Use * as the wildcard operator.", "Use * as the wildcard operator."),
         ("Two * three remains literal.", "Two * three remains literal."),
         ("Call sign A*B* remains literal.", "Call sign A*B* remains literal."),
+        ("*a*a*", "*a*a*"),
+        ("*a***", "*a***"),
+        ("***a*", "***a*"),
+        ("*****", "*"),
         (
             r"Escaped \*markers\* remain literal.",
             r"Escaped \*markers\* remain literal.",
@@ -95,6 +100,17 @@ def test_normalize_speech_text_is_idempotent():
     normalized = normalize_speech_text(source)
 
     assert normalize_speech_text(normalized) == normalized
+
+
+def test_normalize_speech_text_is_linear_for_unmatched_markers():
+    source = " **a" * 16_000
+
+    started = perf_counter()
+    normalized = normalize_speech_text(source)
+    elapsed = perf_counter() - started
+
+    assert normalized == source
+    assert elapsed < 1.0
 
 
 @pytest.mark.parametrize("provider_name", ["openrouter", "fish"])
