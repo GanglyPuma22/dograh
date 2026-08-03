@@ -221,6 +221,28 @@ async def test_empty_transcript_degrades_without_calling_llm_or_tts():
         for event in session.outbound_events
     )
     assert any(
+        isinstance(event, ErrorMessage) and event.code == "no_speech_detected"
+        for event in session.outbound_events
+    )
+    await session.close()
+
+
+async def test_whitespace_only_narration_degrades_without_calling_tts():
+    tts = FakeTTS()
+    session = CompanionSession(
+        providers=fake_providers(llm=FakeLLM([LLMResult(text="   ")]), tts=tts)
+    )
+    await session.start_turn("turn-blank-response", {})
+    await session.append_audio("turn-blank-response", b"\x00\x00")
+    await session.end_turn("turn-blank-response")
+    await session.wait_for_turn("turn-blank-response")
+
+    assert tts.calls == []
+    assert not any(
+        isinstance(event, Caption) and event.speaker == "assistant"
+        for event in session.outbound_events
+    )
+    assert any(
         isinstance(event, ErrorMessage) and event.code == "provider_failure"
         for event in session.outbound_events
     )

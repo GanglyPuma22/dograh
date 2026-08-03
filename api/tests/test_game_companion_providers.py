@@ -318,6 +318,54 @@ async def test_llm_adapter_assembles_streamed_text_and_tool_arguments(
     assert stream.closed is True
 
 
+async def test_llm_adapter_counts_repeated_tool_metadata_toward_response_limit():
+    async def stream():
+        yield completion_chunk(
+            tool_calls=[
+                SimpleNamespace(
+                    index=0,
+                    id="call-1",
+                    function=SimpleNamespace(
+                        name="set_navigation_target",
+                        arguments='{"body_id":"planet_01_moon"}',
+                    ),
+                )
+            ]
+        )
+        yield completion_chunk(
+            tool_calls=[
+                SimpleNamespace(
+                    index=0,
+                    id="x" * (70 * 1024),
+                    function=SimpleNamespace(name=None, arguments=None),
+                )
+            ]
+        )
+
+    class FakeCompletions:
+        async def create(self, **params):
+            return stream()
+
+    service = SimpleNamespace(
+        _client=SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions())),
+        build_chat_completion_params=lambda params: params,
+    )
+
+    with pytest.raises(ProviderError, match="response is too large"):
+        await OpenRouterLLMAdapter(service).respond(
+            [{"role": "user", "content": "Take me to the moon"}],
+            [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "set_navigation_target",
+                        "parameters": {"type": "object"},
+                    },
+                }
+            ],
+        )
+
+
 def test_provider_settings_use_explicit_companion_defaults():
     settings = OpenRouterProviderSettings.from_env(
         {"OPENROUTER_API_KEY": "sk-or-v1-test"}

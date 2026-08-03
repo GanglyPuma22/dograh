@@ -502,7 +502,12 @@ class CompanionSession:
             if not self._owns(runtime):
                 return
             if not transcript.strip():
-                raise ProviderError("OpenRouter STT returned no transcript")
+                await self._fail(
+                    runtime,
+                    code="no_speech_detected",
+                    message="No speech was detected.",
+                )
+                return
             if not await self._emit(
                 runtime,
                 Caption(
@@ -524,7 +529,7 @@ class CompanionSession:
             response_text = await self._respond_with_tools(runtime, messages)
             if not self._owns(runtime):
                 return
-            if not response_text:
+            if not response_text.strip():
                 raise ProviderError("OpenRouter LLM returned no final narration")
             response_text = _filter_unsupported_persistence_claims(response_text)
             await self._speak(runtime, response_text)

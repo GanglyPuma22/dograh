@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 from openai.types.audio import Transcription
-from pipecat.frames.frames import TTSAudioRawFrame
+from pipecat.frames.frames import ErrorFrame, TTSAudioRawFrame
 
 from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.registry import (
@@ -294,6 +294,8 @@ async def test_openrouter_tts_flushes_real_stream_resampler_tail():
     )
 
     assert len(audio) == 16000
+    assert audio[-64:] != b"\x00" * 64
+    assert not any(isinstance(frame, ErrorFrame) for frame in frames)
     assert all(
         frame.sample_rate == 8000
         for frame in frames

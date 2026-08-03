@@ -13,17 +13,18 @@ orchestration.
 Connect to:
 
 ```text
-ws://127.0.0.1:8000/api/v1/game-companion/ws?token=<url-encoded-local-token>
+ws://127.0.0.1:8000/api/v1/game-companion/ws
 ```
 
-Set the same random local token in `DOGRAH_GAME_COMPANION_TOKEN`. Dograh rejects
-missing or incorrect tokens before accepting the WebSocket or creating provider
-clients. The loopback URL carries the token in its query string, so avoid logging
-or sharing the complete URL. Launch the local stack with the Salvage environment
-explicitly loaded:
+Send the same random local token configured in `DOGRAH_GAME_COMPANION_TOKEN` as
+an `Authorization: Bearer <local-token>` handshake header. Dograh rejects missing
+or incorrect tokens before accepting the WebSocket or creating provider clients.
+The token is intentionally kept out of the request URL and access logs. Launch
+the local stack with the Salvage environment explicitly loaded:
 
 ```bash
-docker compose --env-file api/.env.salvage -f docker-compose.salvage.yaml up
+docker compose --env-file api/.env.salvage \
+  -f docker-compose.yaml -f docker-compose.salvage.yaml up
 ```
 
 Send a `hello` JSON frame before any other frame:

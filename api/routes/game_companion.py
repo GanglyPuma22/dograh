@@ -55,10 +55,16 @@ async def game_companion_websocket(websocket: WebSocket) -> None:
         await websocket.close(code=1008, reason="game_companion_disabled")
         return
     expected_token = os.getenv("DOGRAH_GAME_COMPANION_TOKEN", "").strip()
-    supplied_token = websocket.query_params.get("token", "")
-    if not expected_token or not hmac.compare_digest(
-        supplied_token.encode("utf-8"),
-        expected_token.encode("utf-8"),
+    authorization = websocket.headers.get("authorization", "")
+    scheme, separator, supplied_token = authorization.partition(" ")
+    if (
+        not expected_token
+        or separator != " "
+        or scheme.casefold() != "bearer"
+        or not hmac.compare_digest(
+            supplied_token.encode("utf-8"),
+            expected_token.encode("utf-8"),
+        )
     ):
         await websocket.close(code=1008, reason="game_companion_unauthorized")
         return
@@ -164,6 +170,8 @@ async def serve_game_companion(
                     raise
                 if order_checkpoint is not None:
                     order.restore(order_checkpoint)
+                # Recoverable errors are currently restricted to turn-scoped
+                # control messages, whose turn ID identifies the error frame.
                 if error_turn_id is None:
                     raise
                 await _emit_protocol_error(emit, error_turn_id, exc)

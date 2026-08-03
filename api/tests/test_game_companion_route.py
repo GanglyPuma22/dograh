@@ -119,7 +119,10 @@ def enabled_client(monkeypatch):
 
 
 def connect_and_hello(client):
-    websocket = client.websocket_connect(f"/game-companion/ws?token={COMPANION_TOKEN}")
+    websocket = client.websocket_connect(
+        "/game-companion/ws",
+        headers={"Authorization": f"Bearer {COMPANION_TOKEN}"},
+    )
     connection = websocket.__enter__()
     connection.send_json(HELLO)
     acknowledgement = connection.receive_json()
@@ -166,7 +169,7 @@ def test_route_rejects_missing_companion_token_before_session_creation(monkeypat
     assert created == []
 
 
-def test_route_rejects_non_ascii_companion_token_without_crashing(monkeypatch):
+def test_route_rejects_malformed_bearer_authorization_without_crashing(monkeypatch):
     monkeypatch.setenv("DOGRAH_GAME_COMPANION_ENABLED", "1")
     monkeypatch.setenv("DOGRAH_GAME_COMPANION_TOKEN", COMPANION_TOKEN)
     created = []
@@ -181,7 +184,33 @@ def test_route_rejects_non_ascii_companion_token_without_crashing(monkeypatch):
     with (
         TestClient(app) as client,
         pytest.raises(WebSocketDisconnect) as disconnect,
-        client.websocket_connect("/game-companion/ws?token=%C3%A9"),
+        client.websocket_connect(
+            "/game-companion/ws",
+            headers={"Authorization": "Bearer"},
+        ),
+    ):
+        pass
+
+    assert disconnect.value.code == 1008
+    assert created == []
+
+
+def test_route_rejects_companion_token_in_logged_query_string(monkeypatch):
+    monkeypatch.setenv("DOGRAH_GAME_COMPANION_ENABLED", "1")
+    monkeypatch.setenv("DOGRAH_GAME_COMPANION_TOKEN", COMPANION_TOKEN)
+    created = []
+    monkeypatch.setattr(
+        game_companion,
+        "create_companion_session",
+        lambda emit: created.append(emit),
+    )
+    app = FastAPI()
+    app.include_router(game_companion.router)
+
+    with (
+        TestClient(app) as client,
+        pytest.raises(WebSocketDisconnect) as disconnect,
+        client.websocket_connect(f"/game-companion/ws?token={COMPANION_TOKEN}"),
     ):
         pass
 

@@ -368,19 +368,21 @@ class OpenRouterLLMAdapter:
                         index,
                         {"call_id": "", "name": "", "arguments": []},
                     )
-                    if getattr(tool_call, "id", None) and not fragment["call_id"]:
+                    if getattr(tool_call, "id", None):
                         call_id = tool_call.id
                         response_bytes += _utf8_size(call_id)
                         _require_response_within_limit(response_bytes, response_limit)
-                        fragment["call_id"] = call_id
+                        if not fragment["call_id"]:
+                            fragment["call_id"] = call_id
                     function = getattr(tool_call, "function", None)
                     if function is None:
                         continue
-                    if getattr(function, "name", None) and not fragment["name"]:
+                    if getattr(function, "name", None):
                         name = function.name
                         response_bytes += _utf8_size(name)
                         _require_response_within_limit(response_bytes, response_limit)
-                        fragment["name"] = name
+                        if not fragment["name"]:
+                            fragment["name"] = name
                     if getattr(function, "arguments", None):
                         arguments = function.arguments
                         response_bytes += _utf8_size(arguments)
