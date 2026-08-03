@@ -10,6 +10,7 @@ from api.constants import MPS_API_URL
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.minimax_tts import MiniMaxOwnedSessionTTSService
 from api.utils.url_security import validate_user_configured_service_url
+from pipecat.audio.utils import create_stream_resampler
 from pipecat.frames.frames import ErrorFrame, TTSAudioRawFrame
 from pipecat.services.assemblyai.stt import AssemblyAISTTService, AssemblyAISTTSettings
 from pipecat.services.aws.llm import AWSBedrockLLMService, AWSBedrockLLMSettings
@@ -131,7 +132,13 @@ class OpenRouterTTSService(OpenAITTSService):
 
                 await self.start_tts_usage_metrics(text)
                 chunk_size = self.chunk_size or 8192
+                provider_sample_rate = 24000
                 target_sample_rate = self.sample_rate or 24000
+                resampler = (
+                    create_stream_resampler()
+                    if target_sample_rate != provider_sample_rate
+                    else None
+                )
                 sample_remainder = b""
                 emitted_audio = False
                 async for chunk in response.iter_bytes(chunk_size):
@@ -143,6 +150,14 @@ class OpenRouterTTSService(OpenAITTSService):
                     complete_samples = sample_bytes[:complete_size]
                     if not complete_samples:
                         continue
+                    if resampler is not None:
+                        complete_samples = await resampler.resample(
+                            complete_samples,
+                            provider_sample_rate,
+                            target_sample_rate,
+                        )
+                        if not complete_samples:
+                            continue
                     if not emitted_audio:
                         await self.stop_ttfb_metrics()
                         emitted_audio = True
@@ -159,7 +174,7 @@ class OpenRouterTTSService(OpenAITTSService):
                     )
                 elif not emitted_audio:
                     yield ErrorFrame(error="OpenRouter TTS returned no PCM audio")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - provider SDK boundary.
             yield ErrorFrame(error=f"Unknown error occurred: {e}")
 
 

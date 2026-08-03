@@ -134,7 +134,7 @@ def test_create_openrouter_tts_service_uses_openrouter_base_url_and_speed():
 
 
 @pytest.mark.asyncio
-async def test_openrouter_tts_streams_pcm_before_response_completes():
+async def test_openrouter_tts_streams_pcm_before_response_completes(monkeypatch):
     service = OpenRouterTTSService(
         api_key="sk-or-v1-test",
         base_url="https://openrouter.ai/api/v1",
@@ -196,3 +196,57 @@ async def test_openrouter_tts_streams_pcm_before_response_completes():
 
     assert response.finished is True
     assert [frame.audio for frame in remaining_frames] == [b"\x03\x04"]
+
+
+@pytest.mark.asyncio
+async def test_openrouter_tts_resamples_provider_pcm_to_pipeline_rate(monkeypatch):
+    service = OpenRouterTTSService(
+        api_key="sk-or-v1-test",
+        base_url="https://openrouter.ai/api/v1",
+        sample_rate=8000,
+        settings=OpenRouterTTSService.Settings(
+            model="x-ai/grok-voice-tts-1.0",
+            voice="default",
+        ),
+    )
+    service._sample_rate = 8000
+    calls = []
+
+    class FakeResampler:
+        async def resample(self, audio, in_rate, out_rate):
+            calls.append((audio, in_rate, out_rate))
+            return b"\x09\x00"
+
+    class FakeResponse:
+        status_code = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def iter_bytes(self, chunk_size):
+            yield b"\x01\x00\x02\x00"
+
+    monkeypatch.setattr(
+        "api.services.pipecat.service_factory.create_stream_resampler",
+        lambda: FakeResampler(),
+        raising=False,
+    )
+    service._client = SimpleNamespace(
+        audio=SimpleNamespace(
+            speech=SimpleNamespace(
+                with_streaming_response=SimpleNamespace(
+                    create=lambda **kwargs: FakeResponse()
+                )
+            )
+        )
+    )
+
+    frames = [frame async for frame in service.run_tts("hello", "ctx")]
+
+    assert calls == [(b"\x01\x00\x02\x00", 24000, 8000)]
+    assert len(frames) == 1
+    assert frames[0].audio == b"\x09\x00"
+    assert frames[0].sample_rate == 8000
