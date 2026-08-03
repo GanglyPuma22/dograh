@@ -313,8 +313,8 @@ class OpenRouterSTTAdapter:
     async def transcribe(self, wav_audio: bytes) -> str:
         response = await self.service._transcribe(wav_audio)
         text = getattr(response, "text", None)
-        if not isinstance(text, str) or not text.strip():
-            raise ProviderError("OpenRouter STT returned no transcript")
+        if not isinstance(text, str):
+            raise ProviderError("OpenRouter STT returned an invalid transcript")
         return text.strip()
 
     async def close(self) -> None:

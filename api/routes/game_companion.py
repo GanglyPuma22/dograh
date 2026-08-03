@@ -2,7 +2,6 @@
 
 import asyncio
 import hmac
-import os
 import uuid
 from collections.abc import Callable
 from contextlib import suppress
@@ -11,6 +10,10 @@ from fastapi import APIRouter, WebSocket
 from loguru import logger
 from starlette.websockets import WebSocketDisconnect
 
+from api.constants import (
+    DOGRAH_GAME_COMPANION_ENABLED,
+    DOGRAH_GAME_COMPANION_TOKEN,
+)
 from api.services.game_companion.protocol import (
     MAX_BINARY_FRAME_BYTES,
     MAX_JSON_BYTES,
@@ -51,10 +54,10 @@ def create_companion_session(emit: EmitCallback) -> CompanionSession:
 
 @router.websocket("/ws")
 async def game_companion_websocket(websocket: WebSocket) -> None:
-    if os.getenv("DOGRAH_GAME_COMPANION_ENABLED") != "1":
+    if not DOGRAH_GAME_COMPANION_ENABLED:
         await websocket.close(code=1008, reason="game_companion_disabled")
         return
-    expected_token = os.getenv("DOGRAH_GAME_COMPANION_TOKEN", "").strip()
+    expected_token = DOGRAH_GAME_COMPANION_TOKEN
     authorization = websocket.headers.get("authorization", "")
     scheme, separator, supplied_token = authorization.partition(" ")
     if (

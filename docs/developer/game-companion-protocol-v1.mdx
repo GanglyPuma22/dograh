@@ -19,8 +19,24 @@ ws://127.0.0.1:8000/api/v1/game-companion/ws
 Send the same random local token configured in `DOGRAH_GAME_COMPANION_TOKEN` as
 an `Authorization: Bearer <local-token>` handshake header. Dograh rejects missing
 or incorrect tokens before accepting the WebSocket or creating provider clients.
-The token is intentionally kept out of the request URL and access logs. Launch
-the local stack with the Salvage environment explicitly loaded:
+The token is intentionally kept out of the request URL and access logs.
+
+## Local environment
+
+Create the ignored local environment file from the tracked example:
+
+```bash
+cp api/.env.salvage.example api/.env.salvage
+python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
+Copy the generated value into `DOGRAH_GAME_COMPANION_TOKEN` in
+`api/.env.salvage`, replace `OPENROUTER_API_KEY` with your provider key, and
+leave `DOGRAH_GAME_COMPANION_ENABLED=1`. If you select Fish TTS, also configure
+`FISH_API_KEY` and the desired Fish settings in that file. Never commit the
+populated environment file.
+
+Launch the local stack with the Salvage environment explicitly loaded:
 
 ```bash
 docker compose --env-file api/.env.salvage \
@@ -79,6 +95,25 @@ An interrupted stream may end without `audio_end`; the interrupt or replacement
 Tool and memory requests are names from the versioned allowlist. Salvage
 validates every request and returns a typed `tool_result` or `memory_result`.
 The only mutating v1 tool is `set_navigation_target(body_id)`.
+
+A successful navigation result must echo the requested body ID and include a
+navigation state. The state may be a stable status identifier:
+
+```json
+{"type":"tool_result","turn_id":"uuid","call_id":"call-1","ok":true,"result":{"body_id":"planet_01_moon","navigation_state":"targeted"}}
+```
+
+Or it may include the target body ID and stable status explicitly:
+
+```json
+{"type":"tool_result","turn_id":"uuid","call_id":"call-1","ok":true,"result":{"body_id":"planet_01_moon","navigation_state":{"target_body_id":"planet_01_moon","status":"targeted"}}}
+```
+
+A failed tool exchange forbids `result` and requires a non-empty error:
+
+```json
+{"type":"tool_result","turn_id":"uuid","call_id":"call-1","ok":false,"error":"navigation target is unavailable"}
+```
 
 The bounded memory-query allowlist is `recent_activity(limit)`,
 `recent_journal_items(limit)`, `activity_for_body(body_id, limit)`,

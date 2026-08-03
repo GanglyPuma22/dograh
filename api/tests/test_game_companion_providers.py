@@ -157,6 +157,28 @@ async def test_stt_adapter_reuses_service_transcription_without_logging_text():
     assert service.calls == [b"RIFF-complete-wav"]
 
 
+@pytest.mark.parametrize(("provider_text", "expected"), [("", ""), ("   ", "")])
+async def test_stt_adapter_returns_blank_transcripts_for_no_speech_handling(
+    provider_text, expected
+):
+    class FakeService:
+        async def _transcribe(self, _wav_audio):
+            return SimpleNamespace(text=provider_text)
+
+    result = await OpenRouterSTTAdapter(FakeService()).transcribe(b"RIFF-complete-wav")
+
+    assert result == expected
+
+
+async def test_stt_adapter_rejects_non_string_transcripts():
+    class FakeService:
+        async def _transcribe(self, _wav_audio):
+            return SimpleNamespace(text=None)
+
+    with pytest.raises(ProviderError, match="invalid transcript"):
+        await OpenRouterSTTAdapter(FakeService()).transcribe(b"RIFF-complete-wav")
+
+
 async def test_tts_adapter_maps_pipecat_pcm_frames():
     class FakeService:
         async def run_tts(self, text, context_id):

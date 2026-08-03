@@ -102,8 +102,8 @@ class OversizedOutputSession(RecordingSession):
 
 @pytest.fixture
 def enabled_client(monkeypatch):
-    monkeypatch.setenv("DOGRAH_GAME_COMPANION_ENABLED", "1")
-    monkeypatch.setenv("DOGRAH_GAME_COMPANION_TOKEN", COMPANION_TOKEN)
+    monkeypatch.setattr(game_companion, "DOGRAH_GAME_COMPANION_ENABLED", True)
+    monkeypatch.setattr(game_companion, "DOGRAH_GAME_COMPANION_TOKEN", COMPANION_TOKEN)
     sessions = []
 
     def factory(emit):
@@ -132,7 +132,8 @@ def connect_and_hello(client):
 
 
 def test_route_is_disabled_without_explicit_local_opt_in(monkeypatch):
-    monkeypatch.delenv("DOGRAH_GAME_COMPANION_ENABLED", raising=False)
+    monkeypatch.setattr(game_companion, "DOGRAH_GAME_COMPANION_ENABLED", False)
+    monkeypatch.setattr(game_companion, "DOGRAH_GAME_COMPANION_TOKEN", "")
     app = FastAPI()
     app.include_router(game_companion.router)
 
@@ -147,8 +148,8 @@ def test_route_is_disabled_without_explicit_local_opt_in(monkeypatch):
 
 
 def test_route_rejects_missing_companion_token_before_session_creation(monkeypatch):
-    monkeypatch.setenv("DOGRAH_GAME_COMPANION_ENABLED", "1")
-    monkeypatch.setenv("DOGRAH_GAME_COMPANION_TOKEN", COMPANION_TOKEN)
+    monkeypatch.setattr(game_companion, "DOGRAH_GAME_COMPANION_ENABLED", True)
+    monkeypatch.setattr(game_companion, "DOGRAH_GAME_COMPANION_TOKEN", COMPANION_TOKEN)
     created = []
     monkeypatch.setattr(
         game_companion,
@@ -170,8 +171,8 @@ def test_route_rejects_missing_companion_token_before_session_creation(monkeypat
 
 
 def test_route_rejects_malformed_bearer_authorization_without_crashing(monkeypatch):
-    monkeypatch.setenv("DOGRAH_GAME_COMPANION_ENABLED", "1")
-    monkeypatch.setenv("DOGRAH_GAME_COMPANION_TOKEN", COMPANION_TOKEN)
+    monkeypatch.setattr(game_companion, "DOGRAH_GAME_COMPANION_ENABLED", True)
+    monkeypatch.setattr(game_companion, "DOGRAH_GAME_COMPANION_TOKEN", COMPANION_TOKEN)
     created = []
     monkeypatch.setattr(
         game_companion,
@@ -196,8 +197,8 @@ def test_route_rejects_malformed_bearer_authorization_without_crashing(monkeypat
 
 
 def test_route_rejects_companion_token_in_logged_query_string(monkeypatch):
-    monkeypatch.setenv("DOGRAH_GAME_COMPANION_ENABLED", "1")
-    monkeypatch.setenv("DOGRAH_GAME_COMPANION_TOKEN", COMPANION_TOKEN)
+    monkeypatch.setattr(game_companion, "DOGRAH_GAME_COMPANION_ENABLED", True)
+    monkeypatch.setattr(game_companion, "DOGRAH_GAME_COMPANION_TOKEN", COMPANION_TOKEN)
     created = []
     monkeypatch.setattr(
         game_companion,
