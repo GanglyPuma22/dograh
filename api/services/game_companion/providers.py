@@ -454,6 +454,12 @@ class FishTTSAdapter:
                 raise ProviderError(
                     f"Fish TTS request failed with status {response.status_code}"
                 )
+            content_type = response.headers.get("content-type", "")
+            media_type = content_type.partition(";")[0].strip().lower()
+            if media_type != "application/octet-stream" and not media_type.startswith(
+                "audio/"
+            ):
+                raise ProviderError("Fish TTS returned an unsupported content type")
 
             async for http_chunk in response.aiter_bytes():
                 yield http_chunk
