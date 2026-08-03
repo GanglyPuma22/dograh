@@ -599,6 +599,58 @@ async def test_gameplay_action_results_are_typed_and_narrated(name, result, narr
 
 
 @pytest.mark.parametrize(
+    ("question", "context", "answer"),
+    [
+        (
+            "Can we land here?",
+            {
+                "landing": {
+                    "valid": True,
+                    "overall_state": "ready",
+                    "assisted_landing_available": True,
+                    "blocking_reasons": [],
+                }
+            },
+            "The landing director reports that assisted landing is available.",
+        ),
+        (
+            "What is our Supercruise ETA?",
+            {
+                "supercruise": {
+                    "valid": True,
+                    "phase": "cruising",
+                    "target_body_id": "planet_01_moon",
+                    "effective_eta_seconds": 42.0,
+                }
+            },
+            "Our approximate Supercruise ETA is forty-two seconds.",
+        ),
+    ],
+)
+async def test_status_answers_use_context_without_mutating_tool_call(
+    question, context, answer
+):
+    llm = FakeLLM([LLMResult(text=answer)])
+    tts = FakeTTS()
+    session = CompanionSession(
+        providers=fake_providers(stt=FakeSTT(question), llm=llm, tts=tts)
+    )
+
+    await session.start_turn("turn-status", context)
+    await session.append_audio("turn-status", b"\x00\x00")
+    await session.end_turn("turn-status")
+    await session.wait_for_turn("turn-status")
+
+    assert tts.calls == [answer]
+    assert not any(isinstance(event, ToolCall) for event in session.outbound_events)
+    assert (
+        json.dumps(context, separators=(",", ":"), sort_keys=True)
+        in (llm.calls[0]["messages"][-1]["content"])
+    )
+    await session.close()
+
+
+@pytest.mark.parametrize(
     "name",
     [
         "request_assisted_landing",

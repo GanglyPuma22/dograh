@@ -94,7 +94,10 @@ An interrupted stream may end without `audio_end`; the interrupt or replacement
 
 Tool and memory requests are names from the versioned allowlist. Salvage
 validates every request and returns a typed `tool_result` or `memory_result`.
-The only mutating v1 tool is `set_navigation_target(body_id)`.
+The mutating v1 allowlist is `set_navigation_target(body_id)`,
+`request_assisted_landing()`, `request_supercruise()`, and
+`cancel_supercruise()`. The three action tools require exactly `{}` arguments.
+Selecting a navigation target remains separate from engaging Supercruise.
 
 A successful navigation result must echo the requested body ID and include a
 navigation state. The state may be a stable status identifier:
@@ -114,6 +117,22 @@ A failed tool exchange forbids `result` and requires a non-empty error:
 ```json
 {"type":"tool_result","turn_id":"uuid","call_id":"call-1","ok":false,"error":"navigation target is unavailable"}
 ```
+
+A well-formed gameplay denial is not a failed exchange. Landing and
+Supercruise actions use the same bounded result shape for accepted and denied
+requests:
+
+```json
+{"type":"tool_result","turn_id":"uuid","call_id":"call-2","ok":true,"result":{"accepted":false,"state":"manual_flight","code":"no_target","message":"Select a destination before engaging Supercruise."}}
+```
+
+Sanitized turn context may include bounded `landing` and `supercruise` objects.
+Landing status contains game-owned validity, channel, blocker, availability,
+and cue values. Supercruise status contains game-owned phase, target,
+authority, blocker, finite travel measurements, braking, and manual-override
+values. Dograh uses these objects for availability, status, and approximate ETA
+answers without emitting a mutating tool call. It does not calculate gameplay
+eligibility, safety, braking policy, or authority.
 
 The bounded memory-query allowlist is `recent_activity(limit)`,
 `recent_journal_items(limit)`, `activity_for_body(body_id, limit)`,
