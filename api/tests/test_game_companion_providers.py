@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from api.services.game_companion.protocol import MAX_BINARY_FRAME_BYTES
 from api.services.game_companion.providers import (
     CooldownFallbackTTSAdapter,
     FishTTSAdapter,
@@ -42,6 +43,16 @@ class FakeFishResponse:
                 yield chunk
             if self.stream_error is not None:
                 raise self.stream_error
+        finally:
+            self.completed = True
+
+
+class BlockingFishResponse(FakeFishResponse):
+    async def aiter_bytes(self):
+        self.iterated = True
+        try:
+            await asyncio.Event().wait()
+            yield b""  # pragma: no cover - keeps this an async generator.
         finally:
             self.completed = True
 
@@ -353,7 +364,7 @@ def test_game_companion_settings_keep_paid_fish_model_explicitly_configurable():
         ("DOGRAH_GAME_COMPANION_FISH_REQUEST_TIMEOUT_SECONDS", "0", "timeout"),
         (
             "DOGRAH_GAME_COMPANION_FISH_REQUEST_TIMEOUT_SECONDS",
-            "121",
+            "45",
             "timeout",
         ),
         (
@@ -481,6 +492,45 @@ async def test_fish_tts_repairs_arbitrary_pcm16_http_chunk_boundaries():
 
     assert b"".join(chunk.audio for chunk in chunks) == (b"\x01\x00\x02\x00\x03\x00")
     assert all(len(chunk.audio) % 2 == 0 for chunk in chunks)
+
+
+async def test_fish_tts_splits_large_http_chunks_into_protocol_sized_frames():
+    audio = b"\x01\x00" * ((MAX_BINARY_FRAME_BYTES // 2) + 2)
+    adapter = FishTTSAdapter(
+        FishTTSSettings(api_key="fish-test-secret"),
+        client=FakeFishHTTPClient(FakeFishResponse([audio])),
+    )
+
+    chunks = [chunk async for chunk in adapter.synthesize("Large chunk")]
+
+    assert [len(chunk.audio) for chunk in chunks] == [MAX_BINARY_FRAME_BYTES, 4]
+    assert b"".join(chunk.audio for chunk in chunks) == audio
+
+
+async def test_fish_total_request_timeout_opens_next_utterance_fallback():
+    pcm = PCMChunk(audio=b"\x01\x00", sample_rate=24000, channels=1)
+    fish = FishTTSAdapter(
+        FishTTSSettings(
+            api_key="fish-test-secret",
+            request_timeout_seconds=0.01,
+        ),
+        client=FakeFishHTTPClient(BlockingFishResponse()),
+    )
+    fallback = ScriptedTTS([[pcm]])
+    adapter = CooldownFallbackTTSAdapter(
+        primary=fish,
+        fallback=fallback,
+        cooldown_seconds=60.0,
+        monotonic=lambda: 100.0,
+    )
+
+    with pytest.raises(ProviderError, match="timed out"):
+        async with asyncio.timeout(0.1):
+            async for _chunk in adapter.synthesize("Timed out Fish utterance"):
+                pass
+
+    assert [chunk async for chunk in adapter.synthesize("Fallback utterance")] == [pcm]
+    assert fallback.calls == ["Fallback utterance"]
 
 
 async def test_fish_tts_rejects_http_failure_without_reading_or_exposing_body():

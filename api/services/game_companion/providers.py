@@ -16,6 +16,8 @@ from typing import Any, Protocol
 import httpx
 from pydantic import JsonValue
 
+from api.services.game_companion.protocol import MAX_BINARY_FRAME_BYTES
+
 DEFAULT_LLM_MODEL = "deepseek/deepseek-v4-flash"
 DEFAULT_STT_MODEL = "qwen/qwen3-asr-flash-2026-02-10"
 DEFAULT_TTS_MODEL = "x-ai/grok-voice-tts-1.0"
@@ -28,6 +30,7 @@ DEFAULT_FISH_SAMPLE_RATE = 24000
 DEFAULT_FISH_LATENCY = "balanced"
 DEFAULT_FISH_CHUNK_LENGTH = 150
 DEFAULT_FISH_REQUEST_TIMEOUT_SECONDS = 30.0
+MAX_FISH_REQUEST_TIMEOUT_SECONDS = 44.0
 DEFAULT_FISH_FALLBACK_COOLDOWN_SECONDS = 60.0
 FISH_MODELS = frozenset({"s2.1-pro-free", "s2.1-pro"})
 FISH_LATENCY_MODES = frozenset({"low", "balanced", "normal"})
@@ -184,7 +187,7 @@ class FishTTSSettings:
             DEFAULT_FISH_REQUEST_TIMEOUT_SECONDS,
             label="Fish request timeout",
             minimum=1.0,
-            maximum=120.0,
+            maximum=MAX_FISH_REQUEST_TIMEOUT_SECONDS,
         )
         fallback_cooldown_seconds = _bounded_env_float(
             values,
@@ -446,48 +449,57 @@ class FishTTSAdapter:
             payload["reference_id"] = self.settings.reference_id
 
         try:
-            async with self._client.stream(
-                "POST",
-                f"{self.settings.base_url}/v1/tts",
-                headers={
-                    "Authorization": f"Bearer {self.settings.api_key}",
-                    "model": self.settings.model,
-                    "Accept": "application/octet-stream",
-                },
-                json=payload,
-                timeout=self.settings.request_timeout_seconds,
-            ) as response:
-                if response.status_code < 200 or response.status_code >= 300:
-                    raise ProviderError(
-                        f"Fish TTS request failed with status {response.status_code}"
-                    )
+            async with asyncio.timeout(self.settings.request_timeout_seconds):
+                async with self._client.stream(
+                    "POST",
+                    f"{self.settings.base_url}/v1/tts",
+                    headers={
+                        "Authorization": f"Bearer {self.settings.api_key}",
+                        "model": self.settings.model,
+                        "Accept": "application/octet-stream",
+                    },
+                    json=payload,
+                    timeout=self.settings.request_timeout_seconds,
+                ) as response:
+                    if response.status_code < 200 or response.status_code >= 300:
+                        raise ProviderError(
+                            f"Fish TTS request failed with status {response.status_code}"
+                        )
 
-                trailing_byte = b""
-                emitted_audio = False
-                async for http_chunk in response.aiter_bytes():
-                    if not http_chunk:
-                        continue
-                    audio = trailing_byte + bytes(http_chunk)
-                    complete_length = len(audio) - (len(audio) % 2)
-                    trailing_byte = audio[complete_length:]
-                    if complete_length == 0:
-                        continue
-                    emitted_audio = True
-                    yield PCMChunk(
-                        audio=audio[:complete_length],
-                        sample_rate=self.settings.sample_rate,
-                        channels=1,
-                    )
+                    trailing_byte = b""
+                    emitted_audio = False
+                    async for http_chunk in response.aiter_bytes():
+                        if not http_chunk:
+                            continue
+                        audio = trailing_byte + bytes(http_chunk)
+                        complete_length = len(audio) - (len(audio) % 2)
+                        trailing_byte = audio[complete_length:]
+                        if complete_length == 0:
+                            continue
+                        emitted_audio = True
+                        for offset in range(0, complete_length, MAX_BINARY_FRAME_BYTES):
+                            yield PCMChunk(
+                                audio=audio[
+                                    offset : min(
+                                        offset + MAX_BINARY_FRAME_BYTES,
+                                        complete_length,
+                                    )
+                                ],
+                                sample_rate=self.settings.sample_rate,
+                                channels=1,
+                            )
 
-                if trailing_byte:
-                    raise ProviderError("Fish TTS returned an incomplete PCM sample")
-                if not emitted_audio:
-                    raise ProviderError("Fish TTS returned no audio")
+                    if trailing_byte:
+                        raise ProviderError(
+                            "Fish TTS returned an incomplete PCM sample"
+                        )
+                    if not emitted_audio:
+                        raise ProviderError("Fish TTS returned no audio")
         except asyncio.CancelledError:
             raise
         except ProviderError:
             raise
-        except httpx.TimeoutException as exc:
+        except (TimeoutError, httpx.TimeoutException) as exc:
             raise ProviderError("Fish TTS request timed out") from exc
         except httpx.HTTPError as exc:
             raise ProviderError("Fish TTS request failed") from exc
