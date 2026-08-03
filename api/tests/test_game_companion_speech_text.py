@@ -75,6 +75,10 @@ class RecordingFishClient:
         ("*Captain*, proceed.", "Captain, proceed."),
         ("***Warning***", "Warning"),
         ("**bold and *urgent***", "bold and urgent"),
+        (
+            "**Warning **critical** now.**",
+            "Warning critical now.",
+        ),
         ("Status: (**green**); continue.", "Status: (green); continue."),
         ("Course is set.", "Course is set."),
         ("Use * as the wildcard operator.", "Use * as the wildcard operator."),
