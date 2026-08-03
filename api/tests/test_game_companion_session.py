@@ -10,6 +10,7 @@ from api.services.game_companion.persona import (
     ASTER_SYSTEM_PROMPT,
 )
 from api.services.game_companion.protocol import (
+    MAX_TEXT_LENGTH,
     AnnotationProposal,
     AudioEnd,
     AudioStart,
@@ -189,6 +190,18 @@ async def test_new_turn_cancels_previous_provider_work():
     await session.close()
 
 
+async def test_empty_turn_is_rejected_before_stt():
+    stt = FakeSTT()
+    session = CompanionSession(providers=fake_providers(stt=stt))
+    await session.start_turn("turn-empty", {})
+
+    with pytest.raises(ProtocolError, match="invalid_audio_frame"):
+        await session.end_turn("turn-empty")
+
+    assert stt.calls == []
+    await session.close()
+
+
 async def test_close_releases_provider_resources_once():
     stt = CloseTrackingProvider()
     llm = CloseTrackingProvider()
@@ -268,7 +281,7 @@ async def test_stale_provider_output_is_discarded_after_new_turn():
     await session.start_turn("old", {})
     await session.append_audio("old", b"\x00\x00")
     await session.end_turn("old")
-    await stt.started.wait()
+    await asyncio.wait_for(stt.started.wait(), timeout=1.0)
 
     await session.start_turn("new", {})
     stt.release.set()
@@ -299,7 +312,7 @@ async def test_raw_audio_buffer_is_released_before_provider_wait():
     await session.start_turn("turn-1", {})
     await session.append_audio("turn-1", b"\x00\x00\x01\x00")
     await session.end_turn("turn-1")
-    await stt.started.wait()
+    await asyncio.wait_for(stt.started.wait(), timeout=1.0)
 
     try:
         assert session.buffered_audio_bytes == 0
@@ -350,6 +363,34 @@ async def test_captions_precede_assistant_audio():
         assert wav_file.getframerate() == 16000
         assert wav_file.getnchannels() == 1
         assert wav_file.readframes(2) == b"\x00\x00\x01\x00"
+    await session.close()
+
+
+async def test_long_transcript_and_narration_are_bounded_only_in_captions():
+    transcript = "p" * (MAX_TEXT_LENGTH + 100)
+    narration = "a" * (MAX_TEXT_LENGTH + 100)
+    tts = FakeTTS()
+    session = CompanionSession(
+        providers=fake_providers(
+            stt=FakeSTT(transcript),
+            llm=FakeLLM([LLMResult(text=narration)]),
+            tts=tts,
+        )
+    )
+    await session.start_turn("turn-long", {})
+    await session.append_audio("turn-long", b"\x00\x00")
+    await session.end_turn("turn-long")
+    await session.wait_for_turn("turn-long")
+
+    captions = [
+        event for event in session.outbound_events if isinstance(event, Caption)
+    ]
+    assert [len(caption.text) for caption in captions] == [
+        MAX_TEXT_LENGTH,
+        MAX_TEXT_LENGTH,
+    ]
+    assert tts.calls == [narration]
+    assert not any(isinstance(event, ErrorMessage) for event in session.outbound_events)
     await session.close()
 
 
@@ -433,6 +474,78 @@ async def test_tool_call_pauses_final_narration_until_typed_result():
     assert tts.calls == ["The starting moon is now your navigation target."]
     assert len(llm.calls) == 2
     assert any(message["role"] == "tool" for message in llm.calls[1]["messages"])
+    await session.close()
+
+
+async def test_late_tool_result_after_timeout_is_discarded():
+    llm = FakeLLM(
+        [
+            LLMResult(
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="call-late",
+                        name="set_navigation_target",
+                        arguments={"body_id": "planet_01_moon"},
+                    ),
+                )
+            )
+        ]
+    )
+    session = CompanionSession(
+        providers=fake_providers(llm=llm),
+        timeouts=ProviderTimeouts(stt=1, llm=1, tts=1, tool=0.01),
+    )
+    await session.start_turn("turn-late", {})
+    await session.append_audio("turn-late", b"\x00\x00")
+    await session.end_turn("turn-late")
+    await wait_for_event(session, ToolCall)
+    await session.wait_for_turn("turn-late")
+
+    await session.submit_tool_result(
+        ToolResult(
+            type="tool_result",
+            turn_id="turn-late",
+            call_id="call-late",
+            ok=False,
+            error="client completed after timeout",
+        )
+    )
+    await session.close()
+
+
+async def test_late_memory_result_after_timeout_is_discarded():
+    llm = FakeLLM(
+        [
+            LLMResult(
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="query-late",
+                        name="recent_activity",
+                        arguments={"limit": 1},
+                    ),
+                )
+            )
+        ]
+    )
+    session = CompanionSession(
+        providers=fake_providers(llm=llm),
+        timeouts=ProviderTimeouts(stt=1, llm=1, tts=1, tool=0.01),
+    )
+    await session.start_turn("turn-late", {})
+    await session.append_audio("turn-late", b"\x00\x00")
+    await session.end_turn("turn-late")
+    await wait_for_event(session, MemoryQuery)
+    await session.wait_for_turn("turn-late")
+
+    await session.submit_memory_result(
+        MemoryResult(
+            type="memory_result",
+            turn_id="turn-late",
+            query_id="query-late",
+            ok=True,
+            records=[],
+        )
+    )
     await session.close()
 
 
@@ -1074,7 +1187,7 @@ async def test_new_turn_cancels_stale_analysis_output():
     session = CompanionSession(providers=fake_providers(llm=llm))
     await submit_memory_turn(session, turn_id="old", records=[canonical_event()])
     async with asyncio.timeout(1.0):
-        await llm.analysis_started.wait()
+        await asyncio.wait_for(llm.analysis_started.wait(), timeout=1.0)
 
     await session.start_turn("new", {})
     llm.release.set()

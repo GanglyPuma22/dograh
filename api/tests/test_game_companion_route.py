@@ -24,6 +24,7 @@ HELLO = {
     "save_id": "phase_2_prototype",
     "capabilities": ["pcm_s16le", "captions", "tools", "memory"],
 }
+COMPANION_TOKEN = "local-test-token"
 
 
 class RecordingSession:
@@ -102,6 +103,7 @@ class OversizedOutputSession(RecordingSession):
 @pytest.fixture
 def enabled_client(monkeypatch):
     monkeypatch.setenv("DOGRAH_GAME_COMPANION_ENABLED", "1")
+    monkeypatch.setenv("DOGRAH_GAME_COMPANION_TOKEN", COMPANION_TOKEN)
     sessions = []
 
     def factory(emit):
@@ -117,7 +119,7 @@ def enabled_client(monkeypatch):
 
 
 def connect_and_hello(client):
-    websocket = client.websocket_connect("/game-companion/ws")
+    websocket = client.websocket_connect(f"/game-companion/ws?token={COMPANION_TOKEN}")
     connection = websocket.__enter__()
     connection.send_json(HELLO)
     acknowledgement = connection.receive_json()
@@ -139,6 +141,29 @@ def test_route_is_disabled_without_explicit_local_opt_in(monkeypatch):
         pass
 
     assert disconnect.value.code == 1008
+
+
+def test_route_rejects_missing_companion_token_before_session_creation(monkeypatch):
+    monkeypatch.setenv("DOGRAH_GAME_COMPANION_ENABLED", "1")
+    monkeypatch.setenv("DOGRAH_GAME_COMPANION_TOKEN", COMPANION_TOKEN)
+    created = []
+    monkeypatch.setattr(
+        game_companion,
+        "create_companion_session",
+        lambda emit: created.append(emit),
+    )
+    app = FastAPI()
+    app.include_router(game_companion.router)
+
+    with (
+        TestClient(app) as client,
+        pytest.raises(WebSocketDisconnect) as disconnect,
+        client.websocket_connect("/game-companion/ws"),
+    ):
+        pass
+
+    assert disconnect.value.code == 1008
+    assert created == []
 
 
 def test_route_session_uses_selected_game_companion_provider_factory(monkeypatch):

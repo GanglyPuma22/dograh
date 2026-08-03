@@ -13,7 +13,15 @@ orchestration.
 Connect to:
 
 ```text
-ws://127.0.0.1:8000/api/v1/game-companion/ws
+ws://127.0.0.1:8000/api/v1/game-companion/ws?token=<url-encoded-local-token>
+```
+
+Set the same random local token in `DOGRAH_GAME_COMPANION_TOKEN`. Dograh rejects
+missing or incorrect tokens before accepting the WebSocket or creating provider
+clients. Launch the local stack with the Salvage environment explicitly loaded:
+
+```bash
+docker compose --env-file api/.env.salvage -f docker-compose.salvage.yaml up
 ```
 
 Send a `hello` JSON frame before any other frame:
@@ -62,6 +70,8 @@ in the same frame.
 
 Dograh emits turn-scoped `state` and `caption` frames. Spoken responses are
 framed by `audio_start`, ordered binary PCM frames, and `audio_end`.
+An interrupted stream may end without `audio_end`; the interrupt or replacement
+`turn_start` is the authoritative cancellation boundary.
 
 Tool and memory requests are names from the versioned allowlist. Salvage
 validates every request and returns a typed `tool_result` or `memory_result`.

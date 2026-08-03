@@ -270,6 +270,61 @@ class RouteSession:
         self.close_calls += 1
 
 
+async def test_recoverable_protocol_error_does_not_close_connection():
+    class RecoverableRouteSession(RouteSession):
+        async def submit_tool_result(self, result):
+            raise ProtocolError(
+                "invalid_tool_result",
+                "tool result does not match request",
+                recoverable=True,
+            )
+
+    messages = [
+        HELLO,
+        {"type": "turn_start", "turn_id": "turn-1", "context": {}},
+        {"binary": True},
+        {"type": "turn_end", "turn_id": "turn-1"},
+        {
+            "type": "tool_result",
+            "turn_id": "turn-1",
+            "call_id": "call-1",
+            "ok": False,
+            "error": "wrong result",
+        },
+        {"type": "interrupt", "turn_id": "turn-1"},
+    ]
+    events = [
+        {
+            "type": "websocket.receive",
+            **(
+                {"bytes": b"\x00\x00"}
+                if message.get("binary")
+                else {"text": json.dumps(message)}
+            ),
+        }
+        for message in messages
+    ]
+    websocket = FakeWebSocket(events)
+    sessions = []
+
+    def factory(emit):
+        session = RecoverableRouteSession(emit)
+        sessions.append(session)
+        return session
+
+    await serve_game_companion(websocket, session_factory=factory)
+
+    errors = [
+        json.loads(frame)
+        for frame in websocket.sent_text
+        if json.loads(frame)["type"] == "error"
+    ]
+    assert errors[0]["code"] == "invalid_tool_result"
+    assert errors[0]["recoverable"] is True
+    assert websocket.close_calls == []
+    assert sessions[0].active_turn_id is None
+
+
 @pytest.mark.parametrize(
     ("stale_result", "current_result", "result_attribute"),
     [
@@ -356,26 +411,23 @@ async def test_retired_turn_tracking_is_bounded():
     order.accept(Hello.model_validate(HELLO))
     limit = protocol_module.MAX_RETIRED_TURN_IDS
 
-    for index in range(limit + 1):
+    for index in range(limit + 6):
         order.accept(TurnStart(type="turn_start", turn_id=f"turn-{index}", context={}))
 
     assert order.retired_turn_count == limit
-    late_result = ToolResult(
+    evicted_result = ToolResult(
         type="tool_result",
         turn_id="turn-0",
         call_id="late-call",
         ok=False,
         error="late result",
     )
-    assert order.should_discard_retired_result(late_result) is True
+    recent_result = evicted_result.model_copy(update={"turn_id": f"turn-{limit + 4}"})
+    assert order.should_discard_retired_result(evicted_result) is False
+    assert order.should_discard_retired_result(recent_result) is True
 
-    with pytest.raises(ProtocolError, match="turn_history_exhausted"):
-        order.accept(TurnStart(type="turn_start", turn_id="turn-overflow", context={}))
-
+    order.accept(TurnStart(type="turn_start", turn_id="turn-overflow", context={}))
     assert order.retired_turn_count == limit
-    assert order.should_discard_retired_result(late_result) is True
-    with pytest.raises(ProtocolError, match="cannot reuse"):
-        order.accept(TurnStart(type="turn_start", turn_id="turn-0", context={}))
 
 
 @pytest.mark.parametrize(
@@ -528,15 +580,56 @@ async def test_emit_rechecks_turn_ownership_after_cancellation_ignoring_callback
     session = CompanionSession(providers=providers(tts=tts), emit=emit)
     await begin_turn(session, "old")
     async with asyncio.timeout(1.0):
-        await emit.started.wait()
+        await asyncio.wait_for(emit.started.wait(), timeout=1.0)
 
     await session.start_turn("new", {})
     emit.release.set()
-    await session.wait_for_turn("old")
+    try:
+        await session.wait_for_turn("old")
+    except asyncio.CancelledError:
+        pass
 
     assert tts.calls == []
     assert not any(
         isinstance(event, (AudioStart, AudioEnd)) and event.turn_id == "old"
+        for event in emit.events
+    )
+    await session.close()
+
+
+class OwnershipAwareBlockingEmit:
+    checks_turn_ownership = True
+
+    def __init__(self):
+        self.events = []
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def __call__(self, event, still_owned=None):
+        if isinstance(event, Caption) and event.speaker == "assistant":
+            self.started.set()
+            await self.release.wait()
+        if still_owned is None or still_owned():
+            self.events.append(event)
+
+
+async def test_emit_passes_ownership_check_to_locking_transport():
+    emit = OwnershipAwareBlockingEmit()
+    session = CompanionSession(providers=providers(), emit=emit)
+    await begin_turn(session, "old")
+    await asyncio.wait_for(emit.started.wait(), timeout=1.0)
+
+    await session.start_turn("new", {})
+    emit.release.set()
+    try:
+        await session.wait_for_turn("old")
+    except asyncio.CancelledError:
+        pass
+
+    assert not any(
+        isinstance(event, Caption)
+        and event.turn_id == "old"
+        and event.speaker == "assistant"
         for event in emit.events
     )
     await session.close()
@@ -824,7 +917,7 @@ async def test_close_is_bounded_when_active_provider_ignores_cancellation(monkey
     stt = CancellationIgnoringSTT()
     session = CompanionSession(providers=providers(stt=stt))
     await begin_turn(session)
-    await stt.started.wait()
+    await asyncio.wait_for(stt.started.wait(), timeout=1.0)
 
     close_task = asyncio.create_task(session.close())
     await asyncio.sleep(0.05)
@@ -867,7 +960,7 @@ async def test_close_is_bounded_when_provider_close_ignores_cancellation(monkeyp
     session = CompanionSession(providers=providers(stt=stt))
 
     close_task = asyncio.create_task(session.close())
-    await stt.close_started.wait()
+    await asyncio.wait_for(stt.close_started.wait(), timeout=1.0)
     await asyncio.sleep(0.05)
     closed_in_time = close_task.done()
     stt.release_close.set()
@@ -936,7 +1029,7 @@ async def test_llm_tool_call_id_fragments_cannot_bypass_response_byte_limit():
                         content=None,
                         tool_calls=[
                             SimpleNamespace(
-                                index=0,
+                                index=index,
                                 id="x" * fragment_size,
                                 function=None,
                             )
@@ -945,7 +1038,7 @@ async def test_llm_tool_call_id_fragments_cannot_bypass_response_byte_limit():
                 )
             ]
         )
-        for _ in range(providers_module.MAX_LLM_RESPONSE_BYTES // fragment_size + 1)
+        for index in range(providers_module.MAX_LLM_RESPONSE_BYTES // fragment_size + 1)
     ]
 
     class Stream:
@@ -1099,6 +1192,23 @@ async def test_unsupported_analysis_persistence_claim_is_not_spoken(claim):
         if isinstance(event, Caption) and event.speaker == "assistant"
     )
     assert assistant_caption.text == tts.calls[0]
+    await session.close()
+
+
+async def test_unsupported_persistence_sentence_does_not_replace_safe_narration():
+    tts = RecordingTTS()
+    session = CompanionSession(
+        providers=providers(
+            llm=QueueLLM(
+                [LLMResult(text="I saved your insight. Plot a safe course home.")]
+            ),
+            tts=tts,
+        )
+    )
+    await begin_turn(session)
+    await session.wait_for_turn("turn-1")
+
+    assert tts.calls == ["Plot a safe course home."]
     await session.close()
 
 

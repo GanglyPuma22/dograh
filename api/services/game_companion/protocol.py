@@ -1,6 +1,7 @@
 """Typed, transport-independent contract for game companion protocol v1."""
 
 import json
+from collections import deque
 from typing import Annotated, Literal, TypeAlias
 
 from pydantic import (
@@ -343,7 +344,7 @@ class ClientMessageOrder:
         self.active_turn_id: str | None = None
         self.input_open = False
         self.turn_audio_bytes = 0
-        self._retired_turn_ids: list[str] = []
+        self._retired_turn_ids: deque[str] = deque(maxlen=MAX_RETIRED_TURN_IDS)
 
     @property
     def retired_turn_count(self) -> int:
@@ -428,12 +429,6 @@ class ClientMessageOrder:
     def _retire_turn(self, turn_id: str) -> None:
         if turn_id in self._retired_turn_ids:
             return
-        if len(self._retired_turn_ids) >= MAX_RETIRED_TURN_IDS:
-            raise ProtocolError(
-                "turn_history_exhausted",
-                "turn ownership history is full; reconnect before starting another turn",
-                recoverable=True,
-            )
         self._retired_turn_ids.append(turn_id)
 
     def _require_active_turn(self, turn_id: str) -> None:

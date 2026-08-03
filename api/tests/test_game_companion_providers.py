@@ -239,8 +239,10 @@ async def test_llm_adapter_assembles_streamed_text_and_tool_arguments():
             tool_calls=[
                 SimpleNamespace(
                     index=0,
-                    id=None,
-                    function=SimpleNamespace(name=None, arguments='01_moon"}'),
+                    id="call-1",
+                    function=SimpleNamespace(
+                        name="set_navigation_target", arguments='01_moon"}'
+                    ),
                 )
             ]
         ),
@@ -322,6 +324,16 @@ def test_provider_settings_use_explicit_companion_defaults():
 def test_provider_settings_require_openrouter_key():
     with pytest.raises(ProviderConfigurationError, match="OPENROUTER_API_KEY"):
         OpenRouterProviderSettings.from_env({})
+
+
+def test_provider_settings_reprs_redact_api_keys():
+    openrouter = OpenRouterProviderSettings.from_env(
+        {"OPENROUTER_API_KEY": "secret-openrouter-key"}
+    )
+    fish = FishTTSSettings.from_env({"FISH_API_KEY": "secret-fish-key"})
+
+    assert "secret-openrouter-key" not in repr(openrouter)
+    assert "secret-fish-key" not in repr(fish)
 
 
 def test_game_companion_settings_default_to_openrouter_without_fish_credentials():

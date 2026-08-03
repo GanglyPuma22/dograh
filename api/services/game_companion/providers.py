@@ -9,7 +9,7 @@ import time
 import uuid
 import wave
 from collections.abc import AsyncIterator, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Any, Protocol
 
@@ -98,7 +98,7 @@ class ProviderSet:
 
 @dataclass(frozen=True, slots=True)
 class OpenRouterProviderSettings:
-    api_key: str
+    api_key: str = field(repr=False)
     llm_model: str = DEFAULT_LLM_MODEL
     stt_model: str = DEFAULT_STT_MODEL
     tts_model: str = DEFAULT_TTS_MODEL
@@ -125,7 +125,7 @@ class OpenRouterProviderSettings:
 
 @dataclass(frozen=True, slots=True)
 class FishTTSSettings:
-    api_key: str
+    api_key: str = field(repr=False)
     base_url: str = DEFAULT_FISH_BASE_URL
     model: str = DEFAULT_FISH_MODEL
     reference_id: str | None = None
@@ -368,19 +368,19 @@ class OpenRouterLLMAdapter:
                         index,
                         {"call_id": "", "name": "", "arguments": []},
                     )
-                    if getattr(tool_call, "id", None):
+                    if getattr(tool_call, "id", None) and not fragment["call_id"]:
                         call_id = tool_call.id
                         response_bytes += _utf8_size(call_id)
                         _require_response_within_limit(response_bytes, response_limit)
-                        fragment["call_id"] += call_id
+                        fragment["call_id"] = call_id
                     function = getattr(tool_call, "function", None)
                     if function is None:
                         continue
-                    if getattr(function, "name", None):
+                    if getattr(function, "name", None) and not fragment["name"]:
                         name = function.name
                         response_bytes += _utf8_size(name)
                         _require_response_within_limit(response_bytes, response_limit)
-                        fragment["name"] += name
+                        fragment["name"] = name
                     if getattr(function, "arguments", None):
                         arguments = function.arguments
                         response_bytes += _utf8_size(arguments)

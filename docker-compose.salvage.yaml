@@ -17,6 +17,7 @@ services:
     image: dograh-api:salvage-local
     environment:
       DOGRAH_GAME_COMPANION_ENABLED: "${DOGRAH_GAME_COMPANION_ENABLED:-0}"
+      DOGRAH_GAME_COMPANION_TOKEN: "${DOGRAH_GAME_COMPANION_TOKEN:-}"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
       OPENROUTER_BASE_URL: "${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
       DOGRAH_GAME_COMPANION_LLM_MODEL: "${DOGRAH_GAME_COMPANION_LLM_MODEL:-deepseek/deepseek-v4-flash}"

@@ -1,12 +1,14 @@
 """Local, versioned WebSocket transport for the Salvage companion."""
 
 import asyncio
+import hmac
 import os
 import uuid
 from collections.abc import Callable
 from contextlib import suppress
 
 from fastapi import APIRouter, WebSocket
+from loguru import logger
 from starlette.websockets import WebSocketDisconnect
 
 from api.services.game_companion.protocol import (
@@ -52,6 +54,11 @@ async def game_companion_websocket(websocket: WebSocket) -> None:
     if os.getenv("DOGRAH_GAME_COMPANION_ENABLED") != "1":
         await websocket.close(code=1008, reason="game_companion_disabled")
         return
+    expected_token = os.getenv("DOGRAH_GAME_COMPANION_TOKEN", "").strip()
+    supplied_token = websocket.query_params.get("token", "")
+    if not expected_token or not hmac.compare_digest(supplied_token, expected_token):
+        await websocket.close(code=1008, reason="game_companion_unauthorized")
+        return
     await serve_game_companion(
         websocket,
         session_factory=create_companion_session,
@@ -67,8 +74,13 @@ async def serve_game_companion(
     session: CompanionSession | None = None
     send_lock = asyncio.Lock()
 
-    async def emit(event: OutboundEvent) -> None:
+    async def emit(
+        event: OutboundEvent,
+        still_owned: Callable[[], bool] | None = None,
+    ) -> None:
         async with send_lock:
+            if still_owned is not None and not still_owned():
+                return
             if isinstance(event, bytes):
                 if not event:
                     raise ProtocolError(
@@ -89,52 +101,62 @@ async def serve_game_companion(
                 )
             await websocket.send_text(encoded)
 
+    emit.checks_turn_ownership = True  # type: ignore[attr-defined]
+
     await websocket.accept()
     try:
         while True:
-            frame = await _receive_frame(websocket)
-            if isinstance(frame, bytes):
-                order.accept_binary(len(frame))
-                if session is None or order.active_turn_id is None:
+            try:
+                frame = await _receive_frame(websocket)
+                if isinstance(frame, bytes):
+                    order.accept_binary(len(frame))
+                    if session is None or order.active_turn_id is None:
+                        raise ProtocolError(
+                            "hello_required", "hello must precede binary audio"
+                        )
+                    await session.append_audio(order.active_turn_id, frame)
+                    continue
+
+                message = parse_client_message(frame)
+                if order.should_discard_retired_result(message):
+                    continue
+                order.accept(message)
+                if isinstance(message, Hello):
+                    session = session_factory(emit)
+                    await emit(
+                        HelloAck(
+                            type="hello_ack",
+                            protocol_version=PROTOCOL_VERSION,
+                            session_id=str(uuid.uuid4()),
+                            companion="Aster",
+                            audio=AudioFormat(
+                                sample_rate=16000,
+                                channels=1,
+                                format="pcm_s16le",
+                            ),
+                        )
+                    )
+                    continue
+
+                if session is None:
                     raise ProtocolError(
-                        "hello_required", "hello must precede binary audio"
+                        "hello_required", "hello must be the first frame"
                     )
-                await session.append_audio(order.active_turn_id, frame)
-                continue
-
-            message = parse_client_message(frame)
-            if order.should_discard_retired_result(message):
-                continue
-            order.accept(message)
-            if isinstance(message, Hello):
-                session = session_factory(emit)
-                await emit(
-                    HelloAck(
-                        type="hello_ack",
-                        protocol_version=PROTOCOL_VERSION,
-                        session_id=str(uuid.uuid4()),
-                        companion="Aster",
-                        audio=AudioFormat(
-                            sample_rate=16000,
-                            channels=1,
-                            format="pcm_s16le",
-                        ),
-                    )
-                )
-                continue
-
-            if session is None:
-                raise ProtocolError("hello_required", "hello must be the first frame")
-            if isinstance(message, TurnStart):
-                await session.start_turn(message.turn_id, message.context)
-            elif isinstance(message, TurnEnd):
-                await session.end_turn(message.turn_id)
-            elif isinstance(message, Interrupt):
-                await session.interrupt(message.turn_id)
-            elif isinstance(message, ToolResult):
-                await session.submit_tool_result(message)
-            elif isinstance(message, MemoryResult):
-                await session.submit_memory_result(message)
+                if isinstance(message, TurnStart):
+                    await session.start_turn(message.turn_id, message.context)
+                elif isinstance(message, TurnEnd):
+                    await session.end_turn(message.turn_id)
+                elif isinstance(message, Interrupt):
+                    await session.interrupt(message.turn_id)
+                elif isinstance(message, ToolResult):
+                    await session.submit_tool_result(message)
+                elif isinstance(message, MemoryResult):
+                    await session.submit_memory_result(message)
+            except ProtocolError as exc:
+                if not exc.recoverable:
+                    raise
+                if order.active_turn_id is not None:
+                    await _emit_protocol_error(emit, order.active_turn_id, exc)
     except WebSocketDisconnect:
         pass
     except ProtocolError as exc:
@@ -143,6 +165,7 @@ async def serve_game_companion(
         close_code = 1009 if exc.code in _OVERSIZE_CODES else 1008
         await _close_socket(websocket, close_code, exc.code)
     except Exception:  # noqa: BLE001 - terminate the transport at its SDK boundary.
+        logger.exception("Game companion WebSocket session failed")
         await _close_socket(websocket, 1011, "companion_session_failure")
     finally:
         if session is not None:

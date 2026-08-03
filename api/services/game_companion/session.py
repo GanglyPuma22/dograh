@@ -22,6 +22,7 @@ from api.services.game_companion.persona import (
 )
 from api.services.game_companion.protocol import (
     MAX_BINARY_FRAME_BYTES,
+    MAX_TEXT_LENGTH,
     MAX_TURN_AUDIO_BYTES,
     AnnotationProposal,
     AudioEnd,
@@ -47,7 +48,7 @@ from api.services.game_companion.providers import (
 from api.services.game_companion.speech_text import normalize_speech_text
 
 OutboundEvent = ServerMessage | bytes
-EmitCallback = Callable[[OutboundEvent], Awaitable[None]]
+EmitCallback = Callable[..., Awaitable[None]]
 MetricValue = str | int | float | bool
 MetricCallback = Callable[[str, dict[str, MetricValue]], None]
 
@@ -289,6 +290,8 @@ class _TurnRuntime:
     pending_memory_results: dict[str, _PendingMemoryResult] = field(
         default_factory=dict
     )
+    timed_out_tool_ids: set[str] = field(default_factory=set)
+    timed_out_memory_ids: set[str] = field(default_factory=set)
     used_action_ids: set[str] = field(default_factory=set)
     analysis_records: list[dict[str, JsonValue]] = field(default_factory=list)
     analysis_event_ids: set[str] = field(default_factory=set)
@@ -387,6 +390,8 @@ class CompanionSession:
         runtime = self._require_active(turn_id)
         if runtime.input_closed:
             raise ProtocolError("invalid_turn_order", "turn_end was already received")
+        if not runtime.audio:
+            raise ProtocolError("invalid_audio_frame", "turn contains no audio")
         if len(runtime.audio) % 2:
             raise ProtocolError(
                 "invalid_audio_frame", "PCM16 turn ended with an incomplete sample"
@@ -408,6 +413,9 @@ class CompanionSession:
     async def submit_tool_result(self, result: ToolResult) -> None:
         runtime = self._require_active(result.turn_id)
         pending = runtime.pending_tool_results.get(result.call_id)
+        if pending is None and result.call_id in runtime.timed_out_tool_ids:
+            runtime.timed_out_tool_ids.discard(result.call_id)
+            return
         if pending is None or pending.future.done():
             raise ProtocolError(
                 "unexpected_tool_result",
@@ -424,6 +432,9 @@ class CompanionSession:
     async def submit_memory_result(self, result: MemoryResult) -> None:
         runtime = self._require_active(result.turn_id)
         pending = runtime.pending_memory_results.get(result.query_id)
+        if pending is None and result.query_id in runtime.timed_out_memory_ids:
+            runtime.timed_out_memory_ids.discard(result.query_id)
+            return
         if pending is None or pending.future.done():
             raise ProtocolError(
                 "unexpected_memory_result",
@@ -494,7 +505,7 @@ class CompanionSession:
                     type="caption",
                     turn_id=runtime.turn_id,
                     speaker="player",
-                    text=transcript,
+                    text=_caption_text(transcript),
                     final=True,
                 ),
             ):
@@ -523,12 +534,14 @@ class CompanionSession:
                 message="A companion provider timed out.",
             )
         except ProviderError:
+            logger.exception("Game companion provider returned an invalid response")
             await self._fail(
                 runtime,
                 code="provider_failure",
                 message="A companion provider returned an invalid response.",
             )
         except Exception:  # noqa: BLE001 - provider SDKs expose varied failures.
+            logger.exception("Game companion provider failed")
             await self._fail(
                 runtime,
                 code="provider_failure",
@@ -609,6 +622,7 @@ class CompanionSession:
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 - optional analysis cannot fail a spoken turn.
+            logger.exception("Game companion optional annotation analysis failed")
             return
 
     async def _request_actions(
@@ -686,6 +700,12 @@ class CompanionSession:
                 async with asyncio.timeout(self.timeouts.tool):
                     action_result = await future
                 results.append(action_result)
+            except TimeoutError:
+                if call.name == "set_navigation_target":
+                    runtime.timed_out_tool_ids.add(call.call_id)
+                else:
+                    runtime.timed_out_memory_ids.add(call.call_id)
+                raise
             finally:
                 if call.name == "set_navigation_target":
                     runtime.pending_tool_results.pop(call.call_id, None)
@@ -700,7 +720,7 @@ class CompanionSession:
                 type="caption",
                 turn_id=runtime.turn_id,
                 speaker="assistant",
-                text=text,
+                text=_caption_text(text),
                 final=True,
             ),
         ):
@@ -802,6 +822,8 @@ class CompanionSession:
             return False
         if self._emit_callback is None:
             self.outbound_events.append(event)
+        elif getattr(self._emit_callback, "checks_turn_ownership", False):
+            await self._emit_callback(event, lambda: self._owns(runtime))
         else:
             await self._emit_callback(event)
         return self._owns(runtime)
@@ -970,15 +992,25 @@ def _tool_result_matches_request(
 
 
 def _filter_unsupported_persistence_claims(text: str) -> str:
+    supported_sentences: list[str] = []
     for sentence in re.split(r"(?<=[.!?])\s+", text):
+        unsupported = False
         if _PERSISTENCE_OBJECT_PATTERN.search(sentence) is None:
+            supported_sentences.append(sentence)
             continue
         for verb in _PERSISTENCE_VERB_PATTERN.finditer(sentence):
             prefix = sentence[max(0, verb.start() - 40) : verb.start()]
             prefix = _PERSISTENCE_CLAUSE_BREAK_PATTERN.split(prefix)[-1]
             if _NEGATION_PATTERN.search(prefix) is None:
-                return _UNSUPPORTED_PERSISTENCE_FALLBACK
-    return text
+                unsupported = True
+                break
+        if not unsupported:
+            supported_sentences.append(sentence)
+    return " ".join(supported_sentences) or _UNSUPPORTED_PERSISTENCE_FALLBACK
+
+
+def _caption_text(text: str) -> str:
+    return text[:MAX_TEXT_LENGTH]
 
 
 def _normalize_memory_query_arguments(
