@@ -41,12 +41,12 @@ def _can_close(text: str, index: int, width: int, opener: int) -> bool:
 
 def _strip_paired_markers(text: str, width: int) -> str:
     removed = bytearray(len(text))
-    opener: int | None = None
+    openers: list[int] = []
     index = 0
 
     while index <= len(text) - width:
         if text[index] in "\r\n":
-            opener = None
+            openers.clear()
             index += 1
             continue
         if text[index : index + width] != "*" * width:
@@ -56,17 +56,17 @@ def _strip_paired_markers(text: str, width: int) -> str:
             index += width
             continue
 
-        if opener is not None and _can_close(text, index, width, opener):
+        if openers and _can_close(text, index, width, openers[-1]):
+            opener = openers.pop()
             removed[opener : opener + width] = b"\x01" * width
             removed[index : index + width] = b"\x01" * width
-            opener = None
             index += width
             continue
 
-        if width == 1 and opener is not None:
-            opener = None
-        if opener is None and _can_open(text, index, width):
-            opener = index
+        if width == 1 and openers:
+            openers.clear()
+        if _can_open(text, index, width):
+            openers.append(index)
         index += 1
 
     return "".join(
