@@ -195,10 +195,35 @@ async def test_empty_turn_is_rejected_before_stt():
     session = CompanionSession(providers=fake_providers(stt=stt))
     await session.start_turn("turn-empty", {})
 
-    with pytest.raises(ProtocolError, match="invalid_audio_frame"):
+    with pytest.raises(ProtocolError, match="invalid_audio_frame") as raised:
         await session.end_turn("turn-empty")
 
+    assert raised.value.recoverable is True
     assert stt.calls == []
+    await session.close()
+
+
+async def test_empty_transcript_degrades_without_calling_llm_or_tts():
+    llm = FakeLLM()
+    tts = FakeTTS()
+    session = CompanionSession(
+        providers=fake_providers(stt=FakeSTT(text=""), llm=llm, tts=tts)
+    )
+    await session.start_turn("turn-silent", {})
+    await session.append_audio("turn-silent", b"\x00\x00")
+    await session.end_turn("turn-silent")
+    await session.wait_for_turn("turn-silent")
+
+    assert llm.calls == []
+    assert tts.calls == []
+    assert not any(
+        isinstance(event, Caption) and event.speaker == "player"
+        for event in session.outbound_events
+    )
+    assert any(
+        isinstance(event, ErrorMessage) and event.code == "provider_failure"
+        for event in session.outbound_events
+    )
     await session.close()
 
 
@@ -546,6 +571,57 @@ async def test_late_memory_result_after_timeout_is_discarded():
             records=[],
         )
     )
+    await session.close()
+
+
+async def test_all_late_sibling_results_after_timeout_are_idempotently_discarded():
+    llm = FakeLLM(
+        [
+            LLMResult(
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="call-late",
+                        name="set_navigation_target",
+                        arguments={"body_id": "planet_01_moon"},
+                    ),
+                    LLMToolCall(
+                        call_id="query-late",
+                        name="recent_activity",
+                        arguments={"limit": 1},
+                    ),
+                )
+            )
+        ]
+    )
+    session = CompanionSession(
+        providers=fake_providers(llm=llm),
+        timeouts=ProviderTimeouts(stt=1, llm=1, tts=1, tool=0.01),
+    )
+    await session.start_turn("turn-late", {})
+    await session.append_audio("turn-late", b"\x00\x00")
+    await session.end_turn("turn-late")
+    await wait_for_event(session, ToolCall)
+    await wait_for_event(session, MemoryQuery)
+    await session.wait_for_turn("turn-late")
+
+    late_tool = ToolResult(
+        type="tool_result",
+        turn_id="turn-late",
+        call_id="call-late",
+        ok=False,
+        error="client completed after timeout",
+    )
+    late_memory = MemoryResult(
+        type="memory_result",
+        turn_id="turn-late",
+        query_id="query-late",
+        ok=True,
+        records=[],
+    )
+    await session.submit_tool_result(late_tool)
+    await session.submit_tool_result(late_tool)
+    await session.submit_memory_result(late_memory)
+    await session.submit_memory_result(late_memory)
     await session.close()
 
 

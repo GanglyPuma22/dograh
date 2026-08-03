@@ -350,6 +350,33 @@ class ClientMessageOrder:
     def retired_turn_count(self) -> int:
         return len(self._retired_turn_ids)
 
+    def checkpoint(self) -> tuple[bool, str | None, bool, int, tuple[str, ...]]:
+        """Capture ordering state so a rejected recoverable message can be retried."""
+        return (
+            self.hello_received,
+            self.active_turn_id,
+            self.input_open,
+            self.turn_audio_bytes,
+            tuple(self._retired_turn_ids),
+        )
+
+    def restore(
+        self,
+        checkpoint: tuple[bool, str | None, bool, int, tuple[str, ...]],
+    ) -> None:
+        """Restore a checkpoint after session dispatch rejects a message."""
+        (
+            self.hello_received,
+            self.active_turn_id,
+            self.input_open,
+            self.turn_audio_bytes,
+            retired_turn_ids,
+        ) = checkpoint
+        self._retired_turn_ids = deque(
+            retired_turn_ids,
+            maxlen=MAX_RETIRED_TURN_IDS,
+        )
+
     def should_discard_retired_result(self, message: ClientMessage) -> bool:
         return (
             isinstance(message, (ToolResult, MemoryResult))

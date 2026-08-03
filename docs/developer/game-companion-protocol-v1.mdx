@@ -18,7 +18,9 @@ ws://127.0.0.1:8000/api/v1/game-companion/ws?token=<url-encoded-local-token>
 
 Set the same random local token in `DOGRAH_GAME_COMPANION_TOKEN`. Dograh rejects
 missing or incorrect tokens before accepting the WebSocket or creating provider
-clients. Launch the local stack with the Salvage environment explicitly loaded:
+clients. The loopback URL carries the token in its query string, so avoid logging
+or sharing the complete URL. Launch the local stack with the Salvage environment
+explicitly loaded:
 
 ```bash
 docker compose --env-file api/.env.salvage -f docker-compose.salvage.yaml up

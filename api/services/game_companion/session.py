@@ -391,7 +391,11 @@ class CompanionSession:
         if runtime.input_closed:
             raise ProtocolError("invalid_turn_order", "turn_end was already received")
         if not runtime.audio:
-            raise ProtocolError("invalid_audio_frame", "turn contains no audio")
+            raise ProtocolError(
+                "invalid_audio_frame",
+                "turn contains no audio",
+                recoverable=True,
+            )
         if len(runtime.audio) % 2:
             raise ProtocolError(
                 "invalid_audio_frame", "PCM16 turn ended with an incomplete sample"
@@ -414,7 +418,6 @@ class CompanionSession:
         runtime = self._require_active(result.turn_id)
         pending = runtime.pending_tool_results.get(result.call_id)
         if pending is None and result.call_id in runtime.timed_out_tool_ids:
-            runtime.timed_out_tool_ids.discard(result.call_id)
             return
         if pending is None or pending.future.done():
             raise ProtocolError(
@@ -433,7 +436,6 @@ class CompanionSession:
         runtime = self._require_active(result.turn_id)
         pending = runtime.pending_memory_results.get(result.query_id)
         if pending is None and result.query_id in runtime.timed_out_memory_ids:
-            runtime.timed_out_memory_ids.discard(result.query_id)
             return
         if pending is None or pending.future.done():
             raise ProtocolError(
@@ -499,6 +501,8 @@ class CompanionSession:
             )
             if not self._owns(runtime):
                 return
+            if not transcript.strip():
+                raise ProviderError("OpenRouter STT returned no transcript")
             if not await self._emit(
                 runtime,
                 Caption(
@@ -548,7 +552,7 @@ class CompanionSession:
                 message="A companion provider failed.",
             )
         finally:
-            self._cancel_pending_results(runtime)
+            self._cancel_pending_results(runtime, retire_late_results=True)
             runtime.analysis_records.clear()
             runtime.analysis_event_ids.clear()
 
@@ -869,7 +873,14 @@ class CompanionSession:
             runtime.task.cancel()
 
     @staticmethod
-    def _cancel_pending_results(runtime: _TurnRuntime) -> None:
+    def _cancel_pending_results(
+        runtime: _TurnRuntime,
+        *,
+        retire_late_results: bool = False,
+    ) -> None:
+        if retire_late_results:
+            runtime.timed_out_tool_ids.update(runtime.pending_tool_results)
+            runtime.timed_out_memory_ids.update(runtime.pending_memory_results)
         for pending in runtime.pending_tool_results.values():
             if not pending.future.done():
                 pending.future.cancel()
@@ -993,6 +1004,7 @@ def _tool_result_matches_request(
 
 def _filter_unsupported_persistence_claims(text: str) -> str:
     supported_sentences: list[str] = []
+    removed_sentence = False
     for sentence in re.split(r"(?<=[.!?])\s+", text):
         unsupported = False
         if _PERSISTENCE_OBJECT_PATTERN.search(sentence) is None:
@@ -1006,6 +1018,10 @@ def _filter_unsupported_persistence_claims(text: str) -> str:
                 break
         if not unsupported:
             supported_sentences.append(sentence)
+        else:
+            removed_sentence = True
+    if not removed_sentence:
+        return text
     return " ".join(supported_sentences) or _UNSUPPORTED_PERSISTENCE_FALLBACK
 
 

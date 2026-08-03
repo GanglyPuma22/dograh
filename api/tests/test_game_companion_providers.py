@@ -219,7 +219,16 @@ def completion_chunk(*, content=None, tool_calls=None):
     )
 
 
-async def test_llm_adapter_assembles_streamed_text_and_tool_arguments():
+@pytest.mark.parametrize(
+    ("continuation_id", "continuation_name"),
+    [
+        (None, None),
+        ("call-1", "set_navigation_target"),
+    ],
+)
+async def test_llm_adapter_assembles_streamed_text_and_tool_arguments(
+    continuation_id, continuation_name
+):
     chunks = [
         completion_chunk(content="Checking "),
         completion_chunk(
@@ -239,9 +248,9 @@ async def test_llm_adapter_assembles_streamed_text_and_tool_arguments():
             tool_calls=[
                 SimpleNamespace(
                     index=0,
-                    id="call-1",
+                    id=continuation_id,
                     function=SimpleNamespace(
-                        name="set_navigation_target", arguments='01_moon"}'
+                        name=continuation_name, arguments='01_moon"}'
                     ),
                 )
             ]

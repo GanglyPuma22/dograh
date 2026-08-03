@@ -325,6 +325,65 @@ async def test_recoverable_protocol_error_does_not_close_connection():
     assert sessions[0].active_turn_id is None
 
 
+async def test_recoverable_turn_start_failure_restores_message_order():
+    class BacklogRouteSession(RouteSession):
+        async def start_turn(self, turn_id, context):
+            if turn_id == "new":
+                raise ProtocolError(
+                    "provider_backlog_exhausted",
+                    "provider work is still stopping",
+                    recoverable=True,
+                )
+            await super().start_turn(turn_id, context)
+
+    messages = [
+        HELLO,
+        {"type": "turn_start", "turn_id": "old", "context": {}},
+        {"type": "turn_start", "turn_id": "new", "context": {}},
+        {"binary": True},
+        {"type": "interrupt", "turn_id": "old"},
+    ]
+    websocket = FakeWebSocket(
+        [
+            {
+                "type": "websocket.receive",
+                **(
+                    {"bytes": b"\x00\x00"}
+                    if message.get("binary")
+                    else {"text": json.dumps(message)}
+                ),
+            }
+            for message in messages
+        ]
+    )
+    sessions = []
+
+    def factory(emit):
+        session = BacklogRouteSession(emit)
+        sessions.append(session)
+        return session
+
+    await serve_game_companion(websocket, session_factory=factory)
+
+    errors = [
+        json.loads(frame)
+        for frame in websocket.sent_text
+        if json.loads(frame)["type"] == "error"
+    ]
+    assert errors == [
+        {
+            "type": "error",
+            "turn_id": "new",
+            "code": "provider_backlog_exhausted",
+            "message": "provider work is still stopping",
+            "recoverable": True,
+        }
+    ]
+    assert sessions[0].audio == [("old", b"\x00\x00")]
+    assert sessions[0].active_turn_id is None
+    assert websocket.close_calls == []
+
+
 @pytest.mark.parametrize(
     ("stale_result", "current_result", "result_attribute"),
     [
@@ -1235,4 +1294,20 @@ async def test_non_persistence_statements_are_preserved(statement):
     await session.wait_for_turn("turn-1")
 
     assert tts.calls == [statement]
+    await session.close()
+
+
+async def test_safe_narration_preserves_paragraph_whitespace():
+    narration = "The route is clear.\n\nProceed to the moon."
+    tts = RecordingTTS()
+    session = CompanionSession(
+        providers=providers(
+            llm=QueueLLM([LLMResult(text=narration)]),
+            tts=tts,
+        )
+    )
+    await begin_turn(session)
+    await session.wait_for_turn("turn-1")
+
+    assert tts.calls == [narration]
     await session.close()

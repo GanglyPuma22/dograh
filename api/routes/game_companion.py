@@ -56,7 +56,10 @@ async def game_companion_websocket(websocket: WebSocket) -> None:
         return
     expected_token = os.getenv("DOGRAH_GAME_COMPANION_TOKEN", "").strip()
     supplied_token = websocket.query_params.get("token", "")
-    if not expected_token or not hmac.compare_digest(supplied_token, expected_token):
+    if not expected_token or not hmac.compare_digest(
+        supplied_token.encode("utf-8"),
+        expected_token.encode("utf-8"),
+    ):
         await websocket.close(code=1008, reason="game_companion_unauthorized")
         return
     await serve_game_companion(
@@ -106,6 +109,8 @@ async def serve_game_companion(
     await websocket.accept()
     try:
         while True:
+            order_checkpoint = None
+            error_turn_id = None
             try:
                 frame = await _receive_frame(websocket)
                 if isinstance(frame, bytes):
@@ -120,6 +125,8 @@ async def serve_game_companion(
                 message = parse_client_message(frame)
                 if order.should_discard_retired_result(message):
                     continue
+                order_checkpoint = order.checkpoint()
+                error_turn_id = getattr(message, "turn_id", None)
                 order.accept(message)
                 if isinstance(message, Hello):
                     session = session_factory(emit)
@@ -155,8 +162,11 @@ async def serve_game_companion(
             except ProtocolError as exc:
                 if not exc.recoverable:
                     raise
-                if order.active_turn_id is not None:
-                    await _emit_protocol_error(emit, order.active_turn_id, exc)
+                if order_checkpoint is not None:
+                    order.restore(order_checkpoint)
+                if error_turn_id is None:
+                    raise
+                await _emit_protocol_error(emit, error_turn_id, exc)
     except WebSocketDisconnect:
         pass
     except ProtocolError as exc:
