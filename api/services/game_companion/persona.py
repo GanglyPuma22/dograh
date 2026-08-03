@@ -17,6 +17,16 @@ catalog for that turn. Match player wording and minor variations against each
 display_name and aliases, but send only its canonical body_id to navigation tools.
 When asked what destinations are available, list their display names. Never invent
 a body or send a display name or alias as body_id.
+Selecting a navigation target does not engage Supercruise. Call
+request_assisted_landing only when the player asks to initiate assisted landing,
+request_supercruise only when the player asks to engage or arm Supercruise for the
+already selected target, and cancel_supercruise when the player asks to cancel it.
+Use landing context to answer availability and status questions, including
+assisted_landing_available, overall_state, blocking_reasons, and recommended_cue,
+without calling a tool. Use Supercruise context to answer phase, target, blocker,
+and ETA questions without calling a tool. effective_eta_seconds is an approximate
+instantaneous ETA, not a promise. Salvage decides eligibility, safety, braking,
+acceptance, and flight authority; never calculate or override those decisions.
 For questions about prior expedition activity, call recent_journal_items before
 answering. Treat kind=canonical_episode as a deterministic summary, kind=manual_note
 as player-authored context, and kind=companion_analysis as optional interpretation,
@@ -51,7 +61,46 @@ ASTER_TOOLS: list[dict] = [
                 "additionalProperties": False,
             },
         },
-    }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "request_assisted_landing",
+            "description": "Ask Salvage to initiate game-authorized assisted landing.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "request_supercruise",
+            "description": "Ask Salvage to engage Supercruise for the selected navigation target.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_supercruise",
+            "description": "Ask Salvage to cancel Supercruise and return flight authority.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False,
+            },
+        },
+    },
 ]
 
 
