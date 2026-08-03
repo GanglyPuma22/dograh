@@ -69,7 +69,7 @@ Dograh acknowledges the connection and negotiates input audio:
 
 ## Turn framing
 
-For each input turn, send `turn_start`, zero or more binary PCM frames, and
+For each input turn, send `turn_start`, one or more binary PCM frames, and
 `turn_end` in that order. PCM frames contain headerless signed 16-bit
 little-endian mono samples at the negotiated input rate.
 
@@ -134,9 +134,12 @@ existing source event IDs and cannot mutate canonical ledger events.
 - Captions are limited to 4,096 characters and context to 16 KiB encoded JSON.
 - Binary data outside an open input or output audio sequence is rejected.
 
-Protocol errors use an `error` frame with a stable `code`, a bounded `message`,
-and a `recoverable` flag. A malformed connection is closed without affecting
-gameplay.
+Eligible turn-scoped protocol errors use an `error` frame with a stable `code`,
+a bounded `message`, and a `recoverable` flag. Connection-level failures—such
+as an unsupported protocol version, unknown message type, malformed frame, or
+an error without an active turn—are communicated by closing the WebSocket and
+may not include a preceding JSON `error` frame. A malformed connection is
+closed without affecting gameplay.
 
 ## Privacy and authority
 

@@ -1271,6 +1271,30 @@ async def test_unsupported_persistence_sentence_does_not_replace_safe_narration(
     await session.close()
 
 
+async def test_unsupported_pronoun_persistence_followup_is_not_spoken():
+    tts = RecordingTTS()
+    session = CompanionSession(
+        providers=providers(
+            llm=QueueLLM(
+                [
+                    LLMResult(
+                        text=(
+                            "I created a Companion Analysis. "
+                            "It has been saved. Plot a safe course home."
+                        )
+                    )
+                ]
+            ),
+            tts=tts,
+        )
+    )
+    await begin_turn(session)
+    await session.wait_for_turn("turn-1")
+
+    assert tts.calls == ["Plot a safe course home."]
+    await session.close()
+
+
 @pytest.mark.parametrize(
     "statement",
     [

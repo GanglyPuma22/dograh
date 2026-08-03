@@ -89,6 +89,10 @@ _PERSISTENCE_CLAUSE_BREAK_PATTERN = re.compile(
     r"(?:[,;]|\bbut\b|\bhowever\b)",
     re.IGNORECASE,
 )
+_PERSISTENCE_PRONOUN_PATTERN = re.compile(
+    r"^\s*(?:it|this|that|they|these|those)\b",
+    re.IGNORECASE,
+)
 CANONICAL_MEMORY_KEYS = (
     "schema_version",
     "event_id",
@@ -1010,10 +1014,19 @@ def _tool_result_matches_request(
 def _filter_unsupported_persistence_claims(text: str) -> str:
     supported_sentences: list[str] = []
     removed_sentence = False
+    persistence_context = False
     for sentence in re.split(r"(?<=[.!?])\s+", text):
+        has_persistence_object = (
+            _PERSISTENCE_OBJECT_PATTERN.search(sentence) is not None
+        )
+        refers_to_persistence = (
+            persistence_context
+            and _PERSISTENCE_PRONOUN_PATTERN.search(sentence) is not None
+        )
         unsupported = False
-        if _PERSISTENCE_OBJECT_PATTERN.search(sentence) is None:
+        if not has_persistence_object and not refers_to_persistence:
             supported_sentences.append(sentence)
+            persistence_context = False
             continue
         for verb in _PERSISTENCE_VERB_PATTERN.finditer(sentence):
             prefix = sentence[max(0, verb.start() - 40) : verb.start()]
@@ -1025,6 +1038,7 @@ def _filter_unsupported_persistence_claims(text: str) -> str:
             supported_sentences.append(sentence)
         else:
             removed_sentence = True
+        persistence_context = has_persistence_object or refers_to_persistence
     if not removed_sentence:
         return text
     return " ".join(supported_sentences) or _UNSUPPORTED_PERSISTENCE_FALLBACK
