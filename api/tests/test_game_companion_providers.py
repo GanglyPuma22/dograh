@@ -57,6 +57,17 @@ class BlockingFishResponse(FakeFishResponse):
             self.completed = True
 
 
+class FishResponseBlockingAfterFirstChunk(FakeFishResponse):
+    async def aiter_bytes(self):
+        self.iterated = True
+        try:
+            yield b"\x01\x00"
+            await asyncio.Event().wait()
+            yield b""  # pragma: no cover - keeps this an async generator.
+        finally:
+            self.completed = True
+
+
 class FakeFishResponseContext:
     def __init__(self, response, enter_error=None):
         self.response = response
@@ -528,6 +539,33 @@ async def test_fish_total_request_timeout_opens_next_utterance_fallback():
         async with asyncio.timeout(0.1):
             async for _chunk in adapter.synthesize("Timed out Fish utterance"):
                 pass
+
+    assert [chunk async for chunk in adapter.synthesize("Fallback utterance")] == [pcm]
+    assert fallback.calls == ["Fallback utterance"]
+
+
+async def test_fish_deadline_never_cancels_downstream_chunk_delivery():
+    pcm = PCMChunk(audio=b"\x02\x00", sample_rate=24000, channels=1)
+    fish = FishTTSAdapter(
+        FishTTSSettings(
+            api_key="fish-test-secret",
+            request_timeout_seconds=0.01,
+        ),
+        client=FakeFishHTTPClient(FishResponseBlockingAfterFirstChunk()),
+    )
+    fallback = ScriptedTTS([[pcm]])
+    adapter = CooldownFallbackTTSAdapter(
+        primary=fish,
+        fallback=fallback,
+        cooldown_seconds=60.0,
+        monotonic=lambda: 100.0,
+    )
+    stream = adapter.synthesize("Slow downstream delivery")
+
+    assert (await anext(stream)).audio == b"\x01\x00"
+    await asyncio.sleep(0.02)
+    with pytest.raises(ProviderError, match="timed out"):
+        await anext(stream)
 
     assert [chunk async for chunk in adapter.synthesize("Fallback utterance")] == [pcm]
     assert fallback.calls == ["Fallback utterance"]
