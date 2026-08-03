@@ -88,6 +88,8 @@ class RecordingFishClient:
             r"Escaped \*markers\* remain literal.",
             r"Escaped \*markers\* remain literal.",
         ),
+        (r"*foo\* bar*", r"foo\* bar"),
+        (r"*literal\*", r"*literal\*"),
     ],
 )
 def test_normalize_speech_text_handles_only_paired_markdown_emphasis(source, expected):
