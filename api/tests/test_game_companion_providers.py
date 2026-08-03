@@ -600,10 +600,16 @@ async def test_fish_tts_rejects_http_failure_without_reading_or_exposing_body():
     assert "Private response text" not in str(exc_info.value)
 
 
-async def test_fish_tts_rejects_non_audio_success_response_before_streaming():
+@pytest.mark.parametrize(
+    "content_type",
+    ["application/json; charset=utf-8", "audio/mpeg"],
+)
+async def test_fish_tts_rejects_non_pcm_success_response_before_streaming(
+    content_type,
+):
     response = FakeFishResponse(
         [b'{"error":"proxy failure"}'],
-        content_type="application/json; charset=utf-8",
+        content_type=content_type,
     )
     adapter = FishTTSAdapter(
         FishTTSSettings(api_key="fish-test-secret"),
