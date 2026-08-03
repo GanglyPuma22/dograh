@@ -90,6 +90,8 @@ class RecordingFishClient:
         ),
         (r"*foo\* bar*", r"foo\* bar"),
         (r"*literal\*", r"*literal\*"),
+        (r"\\*critical*", r"\\critical"),
+        (r"\\*critical\\*", r"\\critical\\"),
     ],
 )
 def test_normalize_speech_text_handles_only_paired_markdown_emphasis(source, expected):

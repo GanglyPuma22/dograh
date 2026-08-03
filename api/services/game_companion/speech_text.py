@@ -5,10 +5,21 @@ def _is_word_character(character: str) -> bool:
     return character == "_" or character.isalnum()
 
 
+def _is_escaped_marker(text: str, index: int) -> bool:
+    backslashes = 0
+    position = index - 1
+    while position >= 0 and text[position] == "\\":
+        backslashes += 1
+        position -= 1
+    return backslashes % 2 == 1
+
+
 def _can_open(text: str, index: int, width: int) -> bool:
     left = text[index - 1] if index else ""
     content_start = index + width
-    if left and (left == "\\" or left == "*" or _is_word_character(left)):
+    if _is_escaped_marker(text, index):
+        return False
+    if left and (left == "*" or _is_word_character(left)):
         return False
     if content_start >= len(text) or text[content_start].isspace():
         return False
@@ -18,7 +29,7 @@ def _can_open(text: str, index: int, width: int) -> bool:
 def _can_close(text: str, index: int, width: int, opener: int) -> bool:
     if index <= opener + width:
         return False
-    if text[index - 1] == "\\":
+    if _is_escaped_marker(text, index):
         return False
     content_end = text[index - 1]
     right_index = index + width
@@ -41,7 +52,7 @@ def _strip_paired_markers(text: str, width: int) -> str:
         if text[index : index + width] != "*" * width:
             index += 1
             continue
-        if index and text[index - 1] == "\\":
+        if _is_escaped_marker(text, index):
             index += width
             continue
 
