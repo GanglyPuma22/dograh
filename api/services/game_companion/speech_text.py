@@ -63,10 +63,10 @@ def _strip_paired_markers(text: str, width: int) -> str:
             index += width
             continue
 
-        if width == 1 and openers:
-            openers.clear()
         if _can_open(text, index, width):
             openers.append(index)
+        elif width == 1 and openers:
+            openers.clear()
         index += 1
 
     return "".join(
