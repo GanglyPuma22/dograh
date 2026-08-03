@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 from openai.types.audio import Transcription
-from pipecat.frames.frames import TTSAudioRawFrame
+from pipecat.frames.frames import ErrorFrame, TTSAudioRawFrame
 
 from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.registry import (
@@ -134,7 +134,7 @@ def test_create_openrouter_tts_service_uses_openrouter_base_url_and_speed():
 
 
 @pytest.mark.asyncio
-async def test_openrouter_tts_requests_mp3_and_yields_pcm(monkeypatch):
+async def test_openrouter_tts_streams_pcm_before_response_completes(monkeypatch):
     service = OpenRouterTTSService(
         api_key="sk-or-v1-test",
         base_url="https://openrouter.ai/api/v1",
@@ -150,6 +150,9 @@ async def test_openrouter_tts_requests_mp3_and_yields_pcm(monkeypatch):
     class FakeResponse:
         status_code = 200
 
+        def __init__(self):
+            self.finished = False
+
         async def __aenter__(self):
             return self
 
@@ -157,15 +160,16 @@ async def test_openrouter_tts_requests_mp3_and_yields_pcm(monkeypatch):
             return None
 
         async def iter_bytes(self, chunk_size):
-            yield b"mp3-bytes"
+            yield b"\x01\x02"
+            yield b"\x03"
+            yield b"\x04"
+            self.finished = True
+
+    response = FakeResponse()
 
     def fake_create(**kwargs):
         calls.append(kwargs)
-        return FakeResponse()
-
-    async def fake_convert(audio, target_sample_rate):
-        calls.append({"audio": audio, "target_sample_rate": target_sample_rate})
-        return b"\x01\x02\x03\x04"
+        return response
 
     service._client = SimpleNamespace(
         audio=SimpleNamespace(
@@ -174,27 +178,126 @@ async def test_openrouter_tts_requests_mp3_and_yields_pcm(monkeypatch):
             )
         )
     )
-    monkeypatch.setattr(
-        "api.services.pipecat.service_factory._convert_audio_bytes_to_pcm",
-        fake_convert,
+    frames = service.run_tts(
+        "OpenRouter audio smoke test.",
+        "ctx-openrouter",
     )
-
-    frames = [
-        frame
-        async for frame in service.run_tts(
-            "OpenRouter audio smoke test.",
-            "ctx-openrouter",
-        )
-    ]
+    first_frame = await anext(frames)
 
     assert calls[0]["model"] == "x-ai/grok-voice-tts-1.0"
     assert calls[0]["voice"] == "default"
-    assert calls[0]["response_format"] == "mp3"
-    assert calls[1] == {
-        "audio": b"mp3-bytes",
-        "target_sample_rate": 24000,
-    }
+    assert calls[0]["response_format"] == "pcm"
+    assert response.finished is False
+    assert isinstance(first_frame, TTSAudioRawFrame)
+    assert first_frame.audio == b"\x01\x02"
+    assert first_frame.sample_rate == 24000
+
+    remaining_frames = [frame async for frame in frames]
+
+    assert response.finished is True
+    assert [frame.audio for frame in remaining_frames] == [b"\x03\x04"]
+
+
+@pytest.mark.asyncio
+async def test_openrouter_tts_resamples_provider_pcm_to_pipeline_rate(monkeypatch):
+    service = OpenRouterTTSService(
+        api_key="sk-or-v1-test",
+        base_url="https://openrouter.ai/api/v1",
+        sample_rate=8000,
+        settings=OpenRouterTTSService.Settings(
+            model="x-ai/grok-voice-tts-1.0",
+            voice="default",
+        ),
+    )
+    service._sample_rate = 8000
+    calls = []
+
+    class FakeResampler:
+        async def resample(self, audio, in_rate, out_rate):
+            calls.append((audio, in_rate, out_rate))
+            return b"\x09\x00"
+
+    class FakeResponse:
+        status_code = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def iter_bytes(self, chunk_size):
+            yield b"\x01\x00\x02\x00"
+
+    monkeypatch.setattr(
+        "api.services.pipecat.service_factory.create_stream_resampler",
+        lambda: FakeResampler(),
+        raising=False,
+    )
+    service._client = SimpleNamespace(
+        audio=SimpleNamespace(
+            speech=SimpleNamespace(
+                with_streaming_response=SimpleNamespace(
+                    create=lambda **kwargs: FakeResponse()
+                )
+            )
+        )
+    )
+
+    frames = [frame async for frame in service.run_tts("hello", "ctx")]
+
+    assert calls == [(b"\x01\x00\x02\x00", 24000, 8000)]
     assert len(frames) == 1
-    assert isinstance(frames[0], TTSAudioRawFrame)
-    assert frames[0].audio == b"\x01\x02\x03\x04"
-    assert frames[0].sample_rate == 24000
+    assert frames[0].audio == b"\x09\x00"
+    assert frames[0].sample_rate == 8000
+
+
+@pytest.mark.asyncio
+async def test_openrouter_tts_flushes_real_stream_resampler_tail():
+    service = OpenRouterTTSService(
+        api_key="sk-or-v1-test",
+        base_url="https://openrouter.ai/api/v1",
+        sample_rate=8000,
+        settings=OpenRouterTTSService.Settings(
+            model="x-ai/grok-voice-tts-1.0",
+            voice="default",
+        ),
+    )
+    service._sample_rate = 8000
+    provider_audio = b"\x01\x00" * 24000
+
+    class FakeResponse:
+        status_code = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def iter_bytes(self, chunk_size):
+            yield provider_audio
+
+    service._client = SimpleNamespace(
+        audio=SimpleNamespace(
+            speech=SimpleNamespace(
+                with_streaming_response=SimpleNamespace(
+                    create=lambda **kwargs: FakeResponse()
+                )
+            )
+        )
+    )
+
+    frames = [frame async for frame in service.run_tts("hello", "ctx")]
+    audio = b"".join(
+        frame.audio for frame in frames if isinstance(frame, TTSAudioRawFrame)
+    )
+
+    assert len(audio) == 16000
+    assert audio[-64:] != b"\x00" * 64
+    assert not any(isinstance(frame, ErrorFrame) for frame in frames)
+    assert all(
+        frame.sample_rate == 8000
+        for frame in frames
+        if isinstance(frame, TTSAudioRawFrame)
+    )

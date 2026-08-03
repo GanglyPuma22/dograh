@@ -138,6 +138,7 @@
           {
             "group": "Guides",
             "pages": [
+              "developer/game-companion-protocol-v1",
               "developer/workflow-schema",
               "developer/webhooks",
               "developer/environment-variables"

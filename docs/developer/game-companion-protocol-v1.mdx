@@ -1,0 +1,149 @@
+---
+title: Game companion protocol v1
+description: WebSocket control and PCM framing contract for an embedded game companion.
+---
+
+The game companion protocol connects a local game client to Dograh over one
+loopback WebSocket. Salvage owns gameplay authority and persistent memory;
+Dograh owns speech recognition, language generation, speech synthesis, and turn
+orchestration.
+
+## Endpoint
+
+Connect to:
+
+```text
+ws://127.0.0.1:8000/api/v1/game-companion/ws
+```
+
+Send the same random local token configured in `DOGRAH_GAME_COMPANION_TOKEN` as
+an `Authorization: Bearer <local-token>` handshake header. Dograh rejects missing
+or incorrect tokens before accepting the WebSocket or creating provider clients.
+The token is intentionally kept out of the request URL and access logs.
+
+## Local environment
+
+Create the ignored local environment file from the tracked example:
+
+```bash
+cp api/.env.salvage.example api/.env.salvage
+python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
+Copy the generated value into `DOGRAH_GAME_COMPANION_TOKEN` in
+`api/.env.salvage`, replace `OPENROUTER_API_KEY` with your provider key, and
+leave `DOGRAH_GAME_COMPANION_ENABLED=1`. If you select Fish TTS, also configure
+`FISH_API_KEY` and the desired Fish settings in that file. Never commit the
+populated environment file.
+
+Launch the local stack with the Salvage environment explicitly loaded:
+
+```bash
+docker compose --env-file api/.env.salvage \
+  -f docker-compose.yaml -f docker-compose.salvage.yaml up
+```
+
+Send a `hello` JSON frame before any other frame:
+
+```json
+{
+  "type": "hello",
+  "protocol_version": 1,
+  "client": "salvage",
+  "save_id": "phase_2_prototype",
+  "capabilities": ["pcm_s16le", "captions", "tools", "memory"]
+}
+```
+
+Dograh acknowledges the connection and negotiates input audio:
+
+```json
+{
+  "type": "hello_ack",
+  "protocol_version": 1,
+  "session_id": "uuid",
+  "companion": "Aster",
+  "audio": {"sample_rate": 16000, "channels": 1, "format": "pcm_s16le"}
+}
+```
+
+## Turn framing
+
+For each input turn, send `turn_start`, one or more binary PCM frames, and
+`turn_end` in that order. PCM frames contain headerless signed 16-bit
+little-endian mono samples at the negotiated input rate.
+
+```json
+{"type":"turn_start","turn_id":"uuid","context":{}}
+```
+
+```json
+{"type":"turn_end","turn_id":"uuid"}
+```
+
+A new `turn_start` interrupts provider work for the prior active turn. Send an
+explicit `interrupt` to stop an active response without starting its replacement
+in the same frame.
+
+## Server output
+
+Dograh emits turn-scoped `state` and `caption` frames. Spoken responses are
+framed by `audio_start`, ordered binary PCM frames, and `audio_end`.
+An interrupted stream may end without `audio_end`; the interrupt or replacement
+`turn_start` is the authoritative cancellation boundary.
+
+Tool and memory requests are names from the versioned allowlist. Salvage
+validates every request and returns a typed `tool_result` or `memory_result`.
+The only mutating v1 tool is `set_navigation_target(body_id)`.
+
+A successful navigation result must echo the requested body ID and include a
+navigation state. The state may be a stable status identifier:
+
+```json
+{"type":"tool_result","turn_id":"uuid","call_id":"call-1","ok":true,"result":{"body_id":"planet_01_moon","navigation_state":"targeted"}}
+```
+
+Or it may include the target body ID and stable status explicitly:
+
+```json
+{"type":"tool_result","turn_id":"uuid","call_id":"call-1","ok":true,"result":{"body_id":"planet_01_moon","navigation_state":{"target_body_id":"planet_01_moon","status":"targeted"}}}
+```
+
+A failed tool exchange forbids `result` and requires a non-empty error:
+
+```json
+{"type":"tool_result","turn_id":"uuid","call_id":"call-1","ok":false,"error":"navigation target is unavailable"}
+```
+
+The bounded memory-query allowlist is `recent_activity(limit)`,
+`recent_journal_items(limit)`, `activity_for_body(body_id, limit)`,
+`unresolved_incidents(limit)`, `prior_failure(category, limit)`, and
+`journal_item_sources(item_id)`. Journal results preserve provenance labels and
+source event IDs; Companion Analysis remains noncanonical interpretation.
+
+Companion journal interpretation uses `annotation_proposal`. A proposal cites
+existing source event IDs and cannot mutate canonical ledger events.
+
+## Validation and limits
+
+- Every control frame has a `type`; turn-scoped frames have a `turn_id`.
+- Protocol versions other than `1` and unknown message types are rejected.
+- Unknown fields are ignored for forward-compatible minor additions.
+- JSON control frames are limited to 64 KiB.
+- A binary audio frame is limited to 64 KiB and a turn to 16 MiB.
+- Captions are limited to 4,096 characters and context to 16 KiB encoded JSON.
+- Binary data outside an open input or output audio sequence is rejected.
+
+Eligible turn-scoped protocol errors use an `error` frame with a stable `code`,
+a bounded `message`, and a `recoverable` flag. Connection-level failures—such
+as an unsupported protocol version, unknown message type, malformed frame, or
+an error without an active turn—are communicated by closing the WebSocket and
+may not include a preceding JSON `error` frame. A malformed connection is
+closed without affecting gameplay.
+
+## Privacy and authority
+
+Do not persist microphone audio or conversation transcripts. Salvage exposes
+only a sanitized semantic context snapshot and bounded memory query results.
+Dograh never receives scene-tree objects, raw telemetry streams, save files, or
+direct access to gameplay nodes.
