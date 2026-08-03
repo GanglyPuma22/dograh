@@ -3,7 +3,7 @@
 import re
 
 _MARKDOWN_STRONG_PATTERN = re.compile(
-    r"(?<![\\\w*])\*\*(?P<text>[^*\s](?:[^*\r\n]*?[^*\s])?)\*\*(?![\w*])"
+    r"(?<![\\\w*])\*\*(?P<text>\S(?:[^\r\n]*?\S)?)\*\*(?![\w*])"
 )
 _MARKDOWN_EMPHASIS_PATTERN = re.compile(
     r"(?<![\\\w*])\*(?P<text>[^*\s](?:[^*\r\n]*?[^*\s])?)\*(?![\w*])"
