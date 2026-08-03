@@ -4,7 +4,7 @@
 
 **Goal:** Make TTS emphasis normalization linear-time for the maximum companion response while preserving existing speech behavior.
 
-**Architecture:** Replace backtracking substitutions with a line-scoped delimiter scan that records candidate marker positions and pairs compatible one- and two-character delimiters using a stack. Only matched marker characters are removed from the TTS copy.
+**Architecture:** Replace backtracking substitutions with bounded line-scoped forward scans for strong and ordinary emphasis. Each scan tracks one pending opener and removes only completed pairs, preserving the existing strong-then-ordinary normalization order in linear time.
 
 **Tech Stack:** Python 3.13, pytest, Ruff
 
@@ -43,11 +43,11 @@ Expected: FAIL because the current regex takes far longer than one second.
 
 **Step 1: Replace the regex substitutions**
 
-Implement a single forward scan that:
+Implement bounded forward scans that:
 
 1. treats escaped asterisks and intraword asterisks as literal;
-2. decomposes delimiter runs into strong (`**`) and emphasis (`*`) units;
-3. pairs compatible units within one line using a stack;
+2. scans strong (`**`) before ordinary (`*`) emphasis;
+3. tracks at most one pending opener per scan within one line;
 4. removes only marker positions belonging to completed pairs; and
 5. flushes unmatched openers unchanged at a newline or end of input.
 
@@ -94,4 +94,3 @@ git push origin feature/salvage-companion-direct-fish-tts
 
 Reply in the Codex inline thread with the commit and verification evidence, then
 request one final `@codex review`. Do not invoke Claude or merge the PR.
-
