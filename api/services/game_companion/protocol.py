@@ -164,8 +164,30 @@ class AudioEnd(TurnMessage):
 class ToolCall(TurnMessage):
     type: Literal["tool_call"]
     call_id: Identifier
-    name: Literal["set_navigation_target"]
+    name: Literal[
+        "set_navigation_target",
+        "request_assisted_landing",
+        "request_supercruise",
+        "cancel_supercruise",
+    ]
     arguments: dict[str, JsonValue]
+
+    @model_validator(mode="after")
+    def arguments_match_tool(self):
+        if self.name == "set_navigation_target":
+            body_id = self.arguments.get("body_id")
+            if (
+                set(self.arguments) != {"body_id"}
+                or not isinstance(body_id, str)
+                or body_id != body_id.strip()
+                or not 1 <= len(body_id) <= 128
+            ):
+                raise ValueError(
+                    "set_navigation_target arguments require only a valid body_id"
+                )
+        elif self.arguments:
+            raise ValueError(f"{self.name} arguments must be empty")
+        return self
 
 
 class MemoryQuery(TurnMessage):

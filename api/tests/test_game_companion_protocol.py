@@ -6,6 +6,7 @@ from api.services.game_companion.protocol import (
     Hello,
     MemoryResult,
     ProtocolError,
+    ToolCall,
     ToolResult,
     TurnEnd,
     TurnStart,
@@ -97,6 +98,93 @@ def test_parse_annotation_proposal_from_server():
 
     assert isinstance(message, AnnotationProposal)
     assert message.source_event_ids == ["event-1"]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "request_assisted_landing",
+        "request_supercruise",
+        "cancel_supercruise",
+    ],
+)
+def test_gameplay_action_tool_calls_require_empty_arguments(name):
+    message = parse_server_message(
+        {
+            "type": "tool_call",
+            "turn_id": "turn-1",
+            "call_id": "call-1",
+            "name": name,
+            "arguments": {},
+        }
+    )
+
+    assert isinstance(message, ToolCall)
+    assert message.name == name
+    assert message.arguments == {}
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "request_assisted_landing",
+        "request_supercruise",
+        "cancel_supercruise",
+    ],
+)
+def test_gameplay_action_tool_calls_reject_unknown_arguments(name):
+    with pytest.raises(ProtocolError, match="arguments"):
+        parse_server_message(
+            {
+                "type": "tool_call",
+                "turn_id": "turn-1",
+                "call_id": "call-1",
+                "name": name,
+                "arguments": {"force": True},
+            }
+        )
+
+
+def test_navigation_tool_call_preserves_its_exact_argument_schema():
+    message = parse_server_message(
+        {
+            "type": "tool_call",
+            "turn_id": "turn-1",
+            "call_id": "call-1",
+            "name": "set_navigation_target",
+            "arguments": {"body_id": "planet_01_moon"},
+        }
+    )
+
+    assert isinstance(message, ToolCall)
+    assert message.arguments == {"body_id": "planet_01_moon"}
+
+    with pytest.raises(ProtocolError, match="arguments"):
+        parse_server_message(
+            {
+                "type": "tool_call",
+                "turn_id": "turn-1",
+                "call_id": "call-2",
+                "name": "set_navigation_target",
+                "arguments": {
+                    "body_id": "planet_01_moon",
+                    "force": True,
+                },
+            }
+        )
+
+
+def test_unknown_tool_call_name_is_rejected():
+    with pytest.raises(ProtocolError, match="name"):
+        parse_server_message(
+            {
+                "type": "tool_call",
+                "turn_id": "turn-1",
+                "call_id": "call-1",
+                "name": "override_flight_authority",
+                "arguments": {},
+            }
+        )
 
 
 def test_oversized_caption_text_is_rejected():
