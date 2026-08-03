@@ -436,6 +436,28 @@ class FishTTSAdapter:
         )
         self._closed = False
 
+    async def _stream_http_chunks(
+        self, payload: dict[str, JsonValue]
+    ) -> AsyncIterator[bytes]:
+        async with self._client.stream(
+            "POST",
+            f"{self.settings.base_url}/v1/tts",
+            headers={
+                "Authorization": f"Bearer {self.settings.api_key}",
+                "model": self.settings.model,
+                "Accept": "application/octet-stream",
+            },
+            json=payload,
+            timeout=self.settings.request_timeout_seconds,
+        ) as response:
+            if response.status_code < 200 or response.status_code >= 300:
+                raise ProviderError(
+                    f"Fish TTS request failed with status {response.status_code}"
+                )
+
+            async for http_chunk in response.aiter_bytes():
+                yield http_chunk
+
     async def synthesize(self, text: str) -> AsyncIterator[PCMChunk]:
         payload: dict[str, JsonValue] = {
             "text": text,
@@ -448,53 +470,44 @@ class FishTTSAdapter:
         if self.settings.reference_id is not None:
             payload["reference_id"] = self.settings.reference_id
 
+        http_chunks = self._stream_http_chunks(payload)
+        deadline = (
+            asyncio.get_running_loop().time() + self.settings.request_timeout_seconds
+        )
+        trailing_byte = b""
+        emitted_audio = False
         try:
-            async with asyncio.timeout(self.settings.request_timeout_seconds):
-                async with self._client.stream(
-                    "POST",
-                    f"{self.settings.base_url}/v1/tts",
-                    headers={
-                        "Authorization": f"Bearer {self.settings.api_key}",
-                        "model": self.settings.model,
-                        "Accept": "application/octet-stream",
-                    },
-                    json=payload,
-                    timeout=self.settings.request_timeout_seconds,
-                ) as response:
-                    if response.status_code < 200 or response.status_code >= 300:
-                        raise ProviderError(
-                            f"Fish TTS request failed with status {response.status_code}"
-                        )
+            while True:
+                try:
+                    async with asyncio.timeout_at(deadline):
+                        http_chunk = await anext(http_chunks)
+                except StopAsyncIteration:
+                    break
 
-                    trailing_byte = b""
-                    emitted_audio = False
-                    async for http_chunk in response.aiter_bytes():
-                        if not http_chunk:
-                            continue
-                        audio = trailing_byte + bytes(http_chunk)
-                        complete_length = len(audio) - (len(audio) % 2)
-                        trailing_byte = audio[complete_length:]
-                        if complete_length == 0:
-                            continue
-                        emitted_audio = True
-                        for offset in range(0, complete_length, MAX_BINARY_FRAME_BYTES):
-                            yield PCMChunk(
-                                audio=audio[
-                                    offset : min(
-                                        offset + MAX_BINARY_FRAME_BYTES,
-                                        complete_length,
-                                    )
-                                ],
-                                sample_rate=self.settings.sample_rate,
-                                channels=1,
+                if not http_chunk:
+                    continue
+                audio = trailing_byte + bytes(http_chunk)
+                complete_length = len(audio) - (len(audio) % 2)
+                trailing_byte = audio[complete_length:]
+                if complete_length == 0:
+                    continue
+                emitted_audio = True
+                for offset in range(0, complete_length, MAX_BINARY_FRAME_BYTES):
+                    yield PCMChunk(
+                        audio=audio[
+                            offset : min(
+                                offset + MAX_BINARY_FRAME_BYTES,
+                                complete_length,
                             )
+                        ],
+                        sample_rate=self.settings.sample_rate,
+                        channels=1,
+                    )
 
-                    if trailing_byte:
-                        raise ProviderError(
-                            "Fish TTS returned an incomplete PCM sample"
-                        )
-                    if not emitted_audio:
-                        raise ProviderError("Fish TTS returned no audio")
+            if trailing_byte:
+                raise ProviderError("Fish TTS returned an incomplete PCM sample")
+            if not emitted_audio:
+                raise ProviderError("Fish TTS returned no audio")
         except asyncio.CancelledError:
             raise
         except ProviderError:
@@ -503,6 +516,8 @@ class FishTTSAdapter:
             raise ProviderError("Fish TTS request timed out") from exc
         except httpx.HTTPError as exc:
             raise ProviderError("Fish TTS request failed") from exc
+        finally:
+            await _close_async_resource(http_chunks)
 
     async def close(self) -> None:
         if self._closed:
