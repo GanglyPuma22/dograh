@@ -62,6 +62,7 @@ MAX_ANNOTATION_SUMMARY_BYTES = 512
 MAX_ANNOTATION_TAG_BYTES = 64
 MAX_IDENTIFIER_BYTES = 128
 MAX_OUTPUT_AUDIO_BYTES = 8 * 1024 * 1024
+MAX_TOOL_RESULT_MESSAGE_BYTES = 1024
 MAX_RETAINED_TURN_TASKS = 64
 MAX_CANCELLED_TURN_IDS = 64
 MAX_BACKGROUND_TURN_TASKS = 64
@@ -133,6 +134,14 @@ MEMORY_QUERY_NAMES = frozenset(
         "journal_item_sources",
     }
 )
+GAMEPLAY_ACTION_NAMES = frozenset(
+    {
+        "request_assisted_landing",
+        "request_supercruise",
+        "cancel_supercruise",
+    }
+)
+GAMEPLAY_TOOL_NAMES = GAMEPLAY_ACTION_NAMES | {"set_navigation_target"}
 MEMORY_QUERY_TOOLS: list[dict] = [
     {
         "type": "function",
@@ -648,8 +657,13 @@ class CompanionSession:
             if call.call_id in runtime.used_action_ids:
                 raise ProviderError("OpenRouter LLM repeated a tool call ID")
             runtime.used_action_ids.add(call.call_id)
-            if call.name == "set_navigation_target":
-                arguments = _normalize_navigation_arguments(call.arguments)
+            if call.name in GAMEPLAY_TOOL_NAMES:
+                if call.name == "set_navigation_target":
+                    arguments = _normalize_navigation_arguments(call.arguments)
+                else:
+                    arguments = _normalize_gameplay_action_arguments(
+                        call.name, call.arguments
+                    )
                 tool_arguments[call.call_id] = arguments
                 if (
                     call.call_id in runtime.pending_tool_results
@@ -679,12 +693,12 @@ class CompanionSession:
                 raise ProviderError("OpenRouter LLM requested an unregistered tool")
 
         for call in result.tool_calls:
-            if call.name == "set_navigation_target":
+            if call.name in GAMEPLAY_TOOL_NAMES:
                 event: ToolCall | MemoryQuery = ToolCall(
                     type="tool_call",
                     turn_id=runtime.turn_id,
                     call_id=call.call_id,
-                    name="set_navigation_target",
+                    name=call.name,
                     arguments=tool_arguments[call.call_id],
                 )
             else:
@@ -705,7 +719,7 @@ class CompanionSession:
 
         results: list[ToolResult | MemoryResult] = []
         for call in result.tool_calls:
-            if call.name == "set_navigation_target":
+            if call.name in GAMEPLAY_TOOL_NAMES:
                 future = runtime.pending_tool_results[call.call_id].future
             else:
                 future = runtime.pending_memory_results[call.call_id].future
@@ -714,13 +728,13 @@ class CompanionSession:
                     action_result = await future
                 results.append(action_result)
             except TimeoutError:
-                if call.name == "set_navigation_target":
+                if call.name in GAMEPLAY_TOOL_NAMES:
                     runtime.timed_out_tool_ids.add(call.call_id)
                 else:
                     runtime.timed_out_memory_ids.add(call.call_id)
                 raise
             finally:
-                if call.name == "set_navigation_target":
+                if call.name in GAMEPLAY_TOOL_NAMES:
                     runtime.pending_tool_results.pop(call.call_id, None)
                 else:
                     runtime.pending_memory_results.pop(call.call_id, None)
@@ -960,6 +974,15 @@ def _normalize_navigation_arguments(
     return {"body_id": body_id}
 
 
+def _normalize_gameplay_action_arguments(
+    name: str,
+    arguments: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    if arguments:
+        raise ProviderError(f"{name} requires empty arguments")
+    return {}
+
+
 def _validate_tts_chunk(chunk: PCMChunk) -> None:
     if not isinstance(chunk, PCMChunk):
         raise ProviderError("TTS returned an invalid PCM chunk")
@@ -990,7 +1013,11 @@ def _tool_result_matches_request(
 ) -> bool:
     if not result.ok:
         return True
-    if pending.name != "set_navigation_target" or result.result is None:
+    if result.result is None:
+        return False
+    if pending.name in GAMEPLAY_ACTION_NAMES:
+        return _gameplay_action_result_is_valid(result.result)
+    if pending.name != "set_navigation_target":
         return False
     if set(result.result) != {"body_id", "navigation_state"}:
         return False
@@ -1008,6 +1035,24 @@ def _tool_result_matches_request(
     return (
         navigation_state.get("target_body_id") == expected_body_id
         and _normalize_identifier(navigation_state.get("status")) is not None
+    )
+
+
+def _gameplay_action_result_is_valid(result: dict[str, JsonValue]) -> bool:
+    if set(result) != {"accepted", "state", "code", "message"}:
+        return False
+    if type(result.get("accepted")) is not bool:
+        return False
+    state = result.get("state")
+    code = result.get("code")
+    message = result.get("message")
+    return (
+        _normalize_identifier(state) == state
+        and _normalize_identifier(code) == code
+        and isinstance(message, str)
+        and message == message.strip()
+        and bool(message)
+        and _fits_utf8(message, MAX_TOOL_RESULT_MESSAGE_BYTES)
     )
 
 
