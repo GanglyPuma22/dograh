@@ -68,6 +68,7 @@ def test_flight_action_guidance_is_scoped_to_capable_clients():
         assert name in capable_prompt
 
     for always_on_guidance in (
+        "assisted_landing_available",
         "effective_eta_seconds is an approximate instantaneous ETA, not a promise",
         "Salvage decides eligibility, safety, braking, acceptance, and flight authority",
         "An ok=false tool result is a protocol failure or authority failure",
