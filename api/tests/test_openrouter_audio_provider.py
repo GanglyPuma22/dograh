@@ -58,6 +58,8 @@ def test_openrouter_api_key_validation_accepts_openrouter_key_for_audio():
 
 
 def test_create_openrouter_stt_service_uses_openrouter_base_url():
+    from api.services.pipecat import service_factory as current_service_factory
+
     user_config = SimpleNamespace(
         stt=SimpleNamespace(
             provider=ServiceProviders.OPENROUTER.value,
@@ -69,7 +71,7 @@ def test_create_openrouter_stt_service_uses_openrouter_base_url():
 
     service = create_stt_service(user_config, audio_config=None)
 
-    assert isinstance(service, OpenRouterSTTService)
+    assert isinstance(service, current_service_factory.OpenRouterSTTService)
     assert service._settings.model == "qwen/qwen3-asr-flash-2026-02-10"
 
 
@@ -114,6 +116,8 @@ async def test_openrouter_stt_transcribe_posts_json_input_audio_body():
 
 
 def test_create_openrouter_tts_service_uses_openrouter_base_url_and_speed():
+    from api.services.pipecat import service_factory as current_service_factory
+
     user_config = SimpleNamespace(
         tts=SimpleNamespace(
             provider=ServiceProviders.OPENROUTER.value,
@@ -127,7 +131,7 @@ def test_create_openrouter_tts_service_uses_openrouter_base_url_and_speed():
 
     service = create_tts_service(user_config, audio_config=None)
 
-    assert isinstance(service, OpenRouterTTSService)
+    assert isinstance(service, current_service_factory.OpenRouterTTSService)
     assert service._settings.model == "x-ai/grok-voice-tts-1.0"
     assert service._settings.voice == "default"
     assert service._settings.speed == 1.1
