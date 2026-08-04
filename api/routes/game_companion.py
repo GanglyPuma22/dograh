@@ -139,6 +139,7 @@ async def serve_game_companion(
                 order.accept(message)
                 if isinstance(message, Hello):
                     session = session_factory(emit)
+                    session.set_client_capabilities(message.capabilities)
                     await emit(
                         HelloAck(
                             type="hello_ack",

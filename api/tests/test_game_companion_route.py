@@ -37,7 +37,11 @@ class RecordingSession:
         self.interrupted = []
         self.tool_results = []
         self.memory_results = []
+        self.client_capabilities = None
         self.closed = False
+
+    def set_client_capabilities(self, capabilities):
+        self.client_capabilities = frozenset(capabilities)
 
     async def start_turn(self, turn_id, context):
         self.active_turn_id = turn_id
@@ -248,6 +252,7 @@ def test_hello_negotiates_protocol_and_audio(enabled_client):
         "format": "pcm_s16le",
     }
     assert len(sessions) == 1
+    assert sessions[0].client_capabilities == frozenset(HELLO["capabilities"])
     assert sessions[0].closed is True
 
 
