@@ -3,6 +3,7 @@ from api.services.game_companion.persona import (
     ASTER_TOOLS,
     FLIGHT_ACTIONS_CAPABILITY,
     aster_tools_for_capabilities,
+    build_turn_messages,
 )
 
 
@@ -46,6 +47,23 @@ def test_flight_actions_are_offered_only_to_capable_clients():
 
     assert legacy_names == {"set_navigation_target"}
     assert capable_names == set(_tool_functions())
+
+
+def test_flight_action_guidance_is_scoped_to_capable_clients():
+    legacy_prompt = build_turn_messages("Land the ship", {}, {"pcm_s16le", "tools"})[0][
+        "content"
+    ]
+    capable_prompt = build_turn_messages(
+        "Land the ship", {}, {"pcm_s16le", "tools", FLIGHT_ACTIONS_CAPABILITY}
+    )[0]["content"]
+
+    for name in (
+        "request_assisted_landing",
+        "request_supercruise",
+        "cancel_supercruise",
+    ):
+        assert name not in legacy_prompt
+        assert name in capable_prompt
 
 
 def test_aster_guidance_keeps_status_read_only_and_actions_game_owned():

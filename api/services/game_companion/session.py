@@ -341,7 +341,7 @@ class CompanionSession:
         self._metric = metric or _log_session_metric
         self._proposal_id_factory = proposal_id_factory or (lambda: str(uuid.uuid4()))
         self._last_annotation_at: float | None = None
-        self._client_capabilities: frozenset[str] | None = None
+        self._client_capabilities: frozenset[str] = frozenset()
         self._generation = 0
         self._active: _TurnRuntime | None = None
         self._turn_tasks: dict[str, asyncio.Task] = {}
@@ -543,7 +543,9 @@ class CompanionSession:
             ):
                 return
 
-            messages = build_turn_messages(transcript, runtime.context)
+            messages = build_turn_messages(
+                transcript, runtime.context, self._client_capabilities
+            )
             response_text = await self._respond_with_tools(runtime, messages)
             if not self._owns(runtime):
                 return
@@ -589,11 +591,7 @@ class CompanionSession:
             async with asyncio.timeout(self.timeouts.llm):
                 result = await self.providers.llm.respond(
                     messages,
-                    aster_tools_for_capabilities(
-                        self._client_capabilities
-                        if self._client_capabilities is not None
-                        else frozenset({FLIGHT_ACTIONS_CAPABILITY})
-                    )
+                    aster_tools_for_capabilities(self._client_capabilities)
                     + MEMORY_QUERY_TOOLS,
                 )
             round_elapsed_ms = _elapsed_ms(round_started_at, self._monotonic())
@@ -668,7 +666,7 @@ class CompanionSession:
             if call.call_id in runtime.used_action_ids:
                 raise ProviderError("OpenRouter LLM repeated a tool call ID")
             runtime.used_action_ids.add(call.call_id)
-            if call.name in GAMEPLAY_TOOL_NAMES:
+            if call.name in self._allowed_gameplay_tool_names():
                 if call.name == "set_navigation_target":
                     arguments = _normalize_navigation_arguments(call.arguments)
                 else:
@@ -750,6 +748,11 @@ class CompanionSession:
                 else:
                     runtime.pending_memory_results.pop(call.call_id, None)
         return results
+
+    def _allowed_gameplay_tool_names(self) -> frozenset[str]:
+        if FLIGHT_ACTIONS_CAPABILITY in self._client_capabilities:
+            return GAMEPLAY_TOOL_NAMES
+        return GAMEPLAY_TOOL_NAMES - GAMEPLAY_ACTION_NAMES
 
     async def _speak(self, runtime: _TurnRuntime, text: str) -> None:
         if not await self._emit(

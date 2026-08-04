@@ -51,7 +51,7 @@ Send a `hello` JSON frame before any other frame:
   "protocol_version": 1,
   "client": "salvage",
   "save_id": "phase_2_prototype",
-  "capabilities": ["pcm_s16le", "captions", "tools", "memory"]
+  "capabilities": ["pcm_s16le", "captions", "tools", "memory", "flight_actions_v1"]
 }
 ```
 
@@ -98,6 +98,11 @@ The mutating v1 allowlist is `set_navigation_target(body_id)`,
 `request_assisted_landing()`, `request_supercruise()`, and
 `cancel_supercruise()`. The three action tools require exactly `{}` arguments.
 Selecting a navigation target remains separate from engaging Supercruise.
+`set_navigation_target` is available to every v1 client. The three landing and
+Supercruise action tools are offered only when `hello.capabilities` contains
+`flight_actions_v1`; the same capability also scopes Aster's related prompt
+guidance. Capabilities are compatibility declarations, not authorization—the
+game remains the sole authority for accepting or denying every action.
 
 A successful navigation result must echo the requested body ID and include a
 navigation state. The state may be a stable status identifier:
