@@ -25,6 +25,13 @@ def test_phase_a_fixture_matches_tool_schemas_and_protocol():
     }
 
     assert fixture["protocol_version"] == 1
+    fixture_names = {tool["name"] for tool in fixture["tools"]}
+    persona_names = {
+        tool["function"]["name"]
+        for tool in ASTER_TOOLS
+        if tool["function"]["name"] != "set_navigation_target"
+    }
+    assert fixture_names == persona_names
     for index, tool in enumerate(fixture["tools"]):
         assert schemas[tool["name"]] == {
             "type": "object",

@@ -16,7 +16,8 @@ from loguru import logger
 from pydantic import JsonValue
 
 from api.services.game_companion.persona import (
-    ASTER_TOOLS,
+    FLIGHT_ACTIONS_CAPABILITY,
+    aster_tools_for_capabilities,
     build_analysis_messages,
     build_turn_messages,
 )
@@ -340,6 +341,7 @@ class CompanionSession:
         self._metric = metric or _log_session_metric
         self._proposal_id_factory = proposal_id_factory or (lambda: str(uuid.uuid4()))
         self._last_annotation_at: float | None = None
+        self._client_capabilities: frozenset[str] | None = None
         self._generation = 0
         self._active: _TurnRuntime | None = None
         self._turn_tasks: dict[str, asyncio.Task] = {}
@@ -349,6 +351,9 @@ class CompanionSession:
     @property
     def active_turn_id(self) -> str | None:
         return self._active.turn_id if self._active else None
+
+    def set_client_capabilities(self, capabilities: list[str]) -> None:
+        self._client_capabilities = frozenset(capabilities)
 
     @property
     def buffered_audio_bytes(self) -> int:
@@ -583,7 +588,13 @@ class CompanionSession:
             round_started_at = self._monotonic()
             async with asyncio.timeout(self.timeouts.llm):
                 result = await self.providers.llm.respond(
-                    messages, ASTER_TOOLS + MEMORY_QUERY_TOOLS
+                    messages,
+                    aster_tools_for_capabilities(
+                        self._client_capabilities
+                        if self._client_capabilities is not None
+                        else frozenset({FLIGHT_ACTIONS_CAPABILITY})
+                    )
+                    + MEMORY_QUERY_TOOLS,
                 )
             round_elapsed_ms = _elapsed_ms(round_started_at, self._monotonic())
             provider_elapsed_ms += round_elapsed_ms
@@ -1047,7 +1058,9 @@ def _gameplay_action_result_is_valid(result: dict[str, JsonValue]) -> bool:
     code = result.get("code")
     message = result.get("message")
     return (
-        _normalize_identifier(state) == state
+        isinstance(state, str)
+        and _normalize_identifier(state) == state
+        and isinstance(code, str)
         and _normalize_identifier(code) == code
         and isinstance(message, str)
         and message == message.strip()

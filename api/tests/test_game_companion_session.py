@@ -8,6 +8,7 @@ import pytest
 from api.services.game_companion.persona import (
     ASTER_ANALYSIS_SYSTEM_PROMPT,
     ASTER_SYSTEM_PROMPT,
+    FLIGHT_ACTIONS_CAPABILITY,
 )
 from api.services.game_companion.protocol import (
     MAX_TEXT_LENGTH,
@@ -524,6 +525,35 @@ async def test_tool_call_pauses_final_narration_until_typed_result():
     await session.close()
 
 
+async def test_session_offers_flight_actions_only_after_capability_negotiation():
+    legacy_llm = FakeLLM()
+    legacy_session = CompanionSession(providers=fake_providers(llm=legacy_llm))
+    legacy_session.set_client_capabilities(["pcm_s16le", "tools"])
+    await legacy_session.start_turn("turn-legacy", {})
+    await legacy_session.append_audio("turn-legacy", b"\x00\x00")
+    await legacy_session.end_turn("turn-legacy")
+    await legacy_session.wait_for_turn("turn-legacy")
+
+    capable_llm = FakeLLM()
+    capable_session = CompanionSession(providers=fake_providers(llm=capable_llm))
+    capable_session.set_client_capabilities(
+        ["pcm_s16le", "tools", FLIGHT_ACTIONS_CAPABILITY]
+    )
+    await capable_session.start_turn("turn-capable", {})
+    await capable_session.append_audio("turn-capable", b"\x00\x00")
+    await capable_session.end_turn("turn-capable")
+    await capable_session.wait_for_turn("turn-capable")
+
+    legacy_names = {tool["function"]["name"] for tool in legacy_llm.calls[0]["tools"]}
+    capable_names = {tool["function"]["name"] for tool in capable_llm.calls[0]["tools"]}
+    assert "request_assisted_landing" not in legacy_names
+    assert "request_assisted_landing" in capable_names
+    assert "set_navigation_target" in legacy_names
+
+    await legacy_session.close()
+    await capable_session.close()
+
+
 @pytest.mark.parametrize(
     ("name", "result", "narration"),
     [
@@ -706,6 +736,18 @@ async def test_gameplay_action_arguments_must_be_empty_before_emission(name):
             "state": "manual_flight",
             "code": "no_target",
             "message": "x" * 1025,
+        },
+        {
+            "accepted": False,
+            "state": None,
+            "code": "no_target",
+            "message": "No target.",
+        },
+        {
+            "accepted": False,
+            "state": "manual_flight",
+            "code": None,
+            "message": "No target.",
         },
         {
             "accepted": False,

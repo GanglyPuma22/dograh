@@ -48,7 +48,9 @@ summary is interpretation, not canonical fact. Never claim a proposal was saved,
 accepted, or stored.
 """
 
-ASTER_TOOLS: list[dict] = [
+FLIGHT_ACTIONS_CAPABILITY = "flight_actions_v1"
+
+ASTER_BASE_TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
@@ -67,6 +69,9 @@ ASTER_TOOLS: list[dict] = [
             },
         },
     },
+]
+
+ASTER_FLIGHT_ACTION_TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
@@ -107,6 +112,15 @@ ASTER_TOOLS: list[dict] = [
         },
     },
 ]
+
+ASTER_TOOLS: list[dict] = ASTER_BASE_TOOLS + ASTER_FLIGHT_ACTION_TOOLS
+
+
+def aster_tools_for_capabilities(capabilities: set[str] | frozenset[str]) -> list[dict]:
+    tools = list(ASTER_BASE_TOOLS)
+    if FLIGHT_ACTIONS_CAPABILITY in capabilities:
+        tools.extend(ASTER_FLIGHT_ACTION_TOOLS)
+    return tools
 
 
 def build_turn_messages(transcript: str, context: dict[str, JsonValue]) -> list[dict]:

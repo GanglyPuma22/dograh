@@ -1,4 +1,9 @@
-from api.services.game_companion.persona import ASTER_SYSTEM_PROMPT, ASTER_TOOLS
+from api.services.game_companion.persona import (
+    ASTER_SYSTEM_PROMPT,
+    ASTER_TOOLS,
+    FLIGHT_ACTIONS_CAPABILITY,
+    aster_tools_for_capabilities,
+)
 
 
 def _tool_functions():
@@ -25,6 +30,22 @@ def test_aster_registers_only_the_four_gameplay_tools():
             "required": [],
             "additionalProperties": False,
         }
+
+
+def test_flight_actions_are_offered_only_to_capable_clients():
+    legacy_names = {
+        tool["function"]["name"]
+        for tool in aster_tools_for_capabilities({"pcm_s16le", "tools"})
+    }
+    capable_names = {
+        tool["function"]["name"]
+        for tool in aster_tools_for_capabilities(
+            {"pcm_s16le", "tools", FLIGHT_ACTIONS_CAPABILITY}
+        )
+    }
+
+    assert legacy_names == {"set_navigation_target"}
+    assert capable_names == set(_tool_functions())
 
 
 def test_aster_guidance_keeps_status_read_only_and_actions_game_owned():
