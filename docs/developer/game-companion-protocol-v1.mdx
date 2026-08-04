@@ -67,6 +67,10 @@ Dograh acknowledges the connection and negotiates input audio:
 }
 ```
 
+Protocol v1 does not echo accepted capabilities in `hello_ack`. Treat advertised
+capabilities as a one-way compatibility declaration; they are not an authority
+or feature-confirmation channel.
+
 ## Turn framing
 
 For each input turn, send `turn_start`, one or more binary PCM frames, and
@@ -100,9 +104,11 @@ The mutating v1 allowlist is `set_navigation_target(body_id)`,
 Selecting a navigation target remains separate from engaging Supercruise.
 `set_navigation_target` is available to every v1 client. The three landing and
 Supercruise action tools are offered only when `hello.capabilities` contains
-`flight_actions_v1`; the same capability also scopes Aster's related prompt
-guidance. Capabilities are compatibility declarations, not authorization—the
-game remains the sole authority for accepting or denying every action.
+`flight_actions_v1`; the same capability scopes only the prompt instructions that
+name those mutating tools. Status, ETA-caveat, and game-authority guidance remains
+active for any client that supplies landing or Supercruise context. Capabilities
+are compatibility declarations, not authorization—the game remains the sole
+authority for accepting or denying every action.
 
 A successful navigation result must echo the requested body ID and include a
 navigation state. The state may be a stable status identifier:
@@ -131,7 +137,8 @@ requests:
 {"type":"tool_result","turn_id":"uuid","call_id":"call-2","ok":true,"result":{"accepted":false,"state":"manual_flight","code":"no_target","message":"Select a destination before engaging Supercruise."}}
 ```
 
-Sanitized turn context may include bounded `landing` and `supercruise` objects.
+Sanitized turn context may include `landing` and `supercruise` objects inside the
+bounded 16 KB whole-context payload; protocol v1 applies no separate per-object cap.
 Landing status contains game-owned validity, channel, blocker, availability,
 and cue values. Supercruise status contains game-owned phase, target,
 authority, blocker, finite travel measurements, braking, and manual-override

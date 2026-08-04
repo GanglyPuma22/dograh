@@ -2,7 +2,11 @@ import json
 from pathlib import Path
 from typing import get_args
 
-from api.services.game_companion.persona import ASTER_FLIGHT_ACTION_TOOLS, ASTER_TOOLS
+from api.services.game_companion.persona import (
+    ASTER_FLIGHT_ACTION_TOOLS,
+    ASTER_SYSTEM_PROMPT,
+    ASTER_TOOLS,
+)
 from api.services.game_companion.protocol import (
     ToolCall,
     TurnStart,
@@ -78,3 +82,20 @@ def test_phase_a_fixture_context_and_result_shapes_are_bounded_json_values():
         assert result["state"]
         assert result["code"]
         assert result["message"]
+
+
+def test_fixture_supplies_every_flight_context_key_named_by_the_persona():
+    fixture = load_fixture()
+
+    for section, keys in {
+        "landing": (
+            "assisted_landing_available",
+            "overall_state",
+            "blocking_reasons",
+            "recommended_cue",
+        ),
+        "supercruise": ("effective_eta_seconds",),
+    }.items():
+        for key in keys:
+            assert key in fixture[section]
+            assert key in ASTER_SYSTEM_PROMPT

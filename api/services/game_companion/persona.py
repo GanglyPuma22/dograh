@@ -23,7 +23,9 @@ ASTER_FLIGHT_ACTION_SYSTEM_PROMPT = """Selecting a navigation target does not en
 request_assisted_landing only when the player asks to initiate assisted landing,
 request_supercruise only when the player asks to engage or arm Supercruise for the
 already selected target, and cancel_supercruise when the player asks to cancel it.
-Use landing context to answer availability and status questions, including
+"""
+
+ASTER_FLIGHT_CONTEXT_SYSTEM_PROMPT = """Use landing context to answer availability and status questions, including
 assisted_landing_available, overall_state, blocking_reasons, and recommended_cue,
 without calling a tool. Use Supercruise context to answer phase, target, blocker,
 and ETA questions without calling a tool. effective_eta_seconds is an approximate
@@ -46,6 +48,7 @@ Keep responses concise, natural, and suitable for speech.
 ASTER_SYSTEM_PROMPT = (
     ASTER_SYSTEM_PROMPT_PREFIX
     + ASTER_FLIGHT_ACTION_SYSTEM_PROMPT
+    + ASTER_FLIGHT_CONTEXT_SYSTEM_PROMPT
     + ASTER_SYSTEM_PROMPT_SUFFIX
 )
 
@@ -147,6 +150,7 @@ def build_turn_messages(
     system_prompt = ASTER_SYSTEM_PROMPT_PREFIX
     if FLIGHT_ACTIONS_CAPABILITY in capabilities:
         system_prompt += ASTER_FLIGHT_ACTION_SYSTEM_PROMPT
+    system_prompt += ASTER_FLIGHT_CONTEXT_SYSTEM_PROMPT
     system_prompt += ASTER_SYSTEM_PROMPT_SUFFIX
     return [
         {"role": "system", "content": system_prompt},

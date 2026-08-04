@@ -684,6 +684,7 @@ async def test_gameplay_action_results_are_typed_and_narrated(name, result, narr
                     "valid": True,
                     "phase": "cruising",
                     "target_body_id": "planet_01_moon",
+                    "target_display_name": "Érèbe",
                     "effective_eta_seconds": 42.0,
                 }
             },
@@ -691,7 +692,7 @@ async def test_gameplay_action_results_are_typed_and_narrated(name, result, narr
         ),
     ],
 )
-async def test_status_answers_use_context_without_mutating_tool_call(
+async def test_legacy_status_answers_use_context_without_mutating_tool_call(
     question, context, answer
 ):
     llm = FakeLLM([LLMResult(text=answer)])
@@ -708,7 +709,7 @@ async def test_status_answers_use_context_without_mutating_tool_call(
     assert tts.calls == [answer]
     assert not any(isinstance(event, ToolCall) for event in session.outbound_events)
     assert (
-        json.dumps(context, separators=(",", ":"), sort_keys=True)
+        json.dumps(context, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
         in (llm.calls[0]["messages"][-1]["content"])
     )
     await session.close()

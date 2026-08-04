@@ -180,7 +180,7 @@ class ToolCall(TurnMessage):
                 set(self.arguments) != {"body_id"}
                 or not isinstance(body_id, str)
                 or body_id != body_id.strip()
-                or not 1 <= len(body_id) <= 128
+                or not 1 <= len(body_id.encode("utf-8")) <= 128
             ):
                 raise ValueError(
                     "set_navigation_target arguments require only a valid body_id"
