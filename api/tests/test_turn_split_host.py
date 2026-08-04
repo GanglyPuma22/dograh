@@ -56,9 +56,7 @@ def reload_turn_modules(monkeypatch):
 def _turn_servers(ice_servers):
     """Return the non-STUN ICE server entries."""
     return [
-        server
-        for server in ice_servers
-        if not str(server.urls).startswith("stun:")
+        server for server in ice_servers if not str(server.urls).startswith("stun:")
     ]
 
 

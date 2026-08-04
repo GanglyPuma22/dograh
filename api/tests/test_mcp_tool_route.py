@@ -29,6 +29,8 @@ from api.routes.tool import (
     UpdateToolRequest,
     _populate_discovered_tools,
     refresh_mcp_tools,
+)
+from api.routes.tool import (
     update_tool as update_tool_route,
 )
 from api.services.workflow.tools.mcp_tool import (

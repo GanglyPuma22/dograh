@@ -54,9 +54,9 @@ from pipecat.frames.frames import (
     TranscriptionFrame,
     TTSSpeakFrame,
     TTSTextFrame,
-    UserStoppedSpeakingFrame,
     UserMuteStartedFrame,
     UserMuteStoppedFrame,
+    UserStoppedSpeakingFrame,
 )
 from pipecat.metrics.metrics import TTFBMetricsData
 from pipecat.observers.base_observer import BaseObserver, FramePushed

@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-
 SESSION_TOKEN = "emb_session_0123456789abcdefghijklmnopqrstuv"
 MEDIA_PROTOCOL = "jeeves-media-v1"
 
