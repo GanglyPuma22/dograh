@@ -17,6 +17,7 @@ completion flag, and ``gathered_context`` entries.
 import asyncio
 
 import pytest
+from pipecat.tests.mock_transport import MockTransport
 from pipecat.transports.base_transport import TransportParams
 
 from api.enums import WorkflowRunMode, WorkflowRunState
@@ -27,7 +28,6 @@ from api.tests.integrations._run_pipeline_helpers import (
     create_workflow_run_rows,
     patch_run_pipeline_externals,
 )
-from pipecat.tests.mock_transport import MockTransport
 
 WORKFLOW_DEFINITION = {
     "nodes": [
