@@ -247,6 +247,10 @@ class RouteSession:
         self.ended = []
         self.tool_results = []
         self.memory_results = []
+        self.client_capabilities = None
+
+    def set_client_capabilities(self, capabilities):
+        self.client_capabilities = frozenset(capabilities)
 
     async def start_turn(self, turn_id, context):
         self.active_turn_id = turn_id

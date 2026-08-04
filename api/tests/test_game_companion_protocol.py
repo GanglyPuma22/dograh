@@ -173,6 +173,17 @@ def test_navigation_tool_call_preserves_its_exact_argument_schema():
             }
         )
 
+    with pytest.raises(ProtocolError, match="arguments"):
+        parse_server_message(
+            {
+                "type": "tool_call",
+                "turn_id": "turn-1",
+                "call_id": "call-3",
+                "name": "set_navigation_target",
+                "arguments": {"body_id": "é" * 65},
+            }
+        )
+
 
 def test_unknown_tool_call_name_is_rejected():
     with pytest.raises(ProtocolError, match="name"):

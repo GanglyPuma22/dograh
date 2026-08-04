@@ -56,6 +56,8 @@ def test_flight_action_guidance_is_scoped_to_capable_clients():
     capable_prompt = build_turn_messages(
         "Land the ship", {}, {"pcm_s16le", "tools", FLIGHT_ACTIONS_CAPABILITY}
     )[0]["content"]
+    legacy_prompt_normalized = " ".join(legacy_prompt.split())
+    capable_prompt_normalized = " ".join(capable_prompt.split())
 
     for name in (
         "request_assisted_landing",
@@ -64,6 +66,14 @@ def test_flight_action_guidance_is_scoped_to_capable_clients():
     ):
         assert name not in legacy_prompt
         assert name in capable_prompt
+
+    for always_on_guidance in (
+        "effective_eta_seconds is an approximate instantaneous ETA, not a promise",
+        "Salvage decides eligibility, safety, braking, acceptance, and flight authority",
+        "An ok=false tool result is a protocol failure or authority failure",
+    ):
+        assert always_on_guidance in legacy_prompt_normalized
+        assert always_on_guidance in capable_prompt_normalized
 
 
 def test_aster_guidance_keeps_status_read_only_and_actions_game_owned():
