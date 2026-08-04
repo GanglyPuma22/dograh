@@ -4,8 +4,8 @@ These endpoints are accessible without authentication but require valid embed to
 They handle CORS, domain validation, and session management for embedded workflows.
 """
 
-import secrets
 import re
+import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 from urllib.parse import urlsplit

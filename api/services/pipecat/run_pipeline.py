@@ -385,9 +385,7 @@ async def _run_pipeline(
         max_call_duration_seconds
     )
     if max_call_duration_seconds != DEFAULT_MAX_CALL_DURATION_SECONDS:
-        logger.info(
-            f"Resolved max_call_duration_seconds={max_call_duration_seconds}s"
-        )
+        logger.info(f"Resolved max_call_duration_seconds={max_call_duration_seconds}s")
 
     # Resolve model overrides from the version onto global user config (skip
     # when the caller already resolved it).

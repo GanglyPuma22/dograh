@@ -5,7 +5,6 @@ from typing import Any
 
 from pipecat.utils.enums import RealtimeFeedbackType
 
-
 JEEVES_TIMING_EVENT = "rtf-jeeves-timing"
 
 

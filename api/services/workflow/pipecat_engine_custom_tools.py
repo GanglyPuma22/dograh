@@ -32,8 +32,8 @@ from api.services.pipecat.audio_playback import play_audio, play_audio_loop
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.transfer_event_protocol import TransferContext
-from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
 from api.services.workflow.tools import custom_tool as custom_tool_module
+from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
 from api.services.workflow.tools.custom_tool import (
     HttpToolRuntimeIdentity,
     canonicalize_http_tool_call_id,

@@ -3,7 +3,6 @@ from typing import Optional
 
 from loguru import logger
 
-
 DEFAULT_MAX_CALL_DURATION_SECONDS = 300
 MAX_CALL_DURATION_ENV_VAR = "DOGRAH_MAX_CALL_DURATION_SECONDS"
 
@@ -33,4 +32,3 @@ def resolve_max_call_duration_seconds(configured_value: Optional[int]) -> int:
         return DEFAULT_MAX_CALL_DURATION_SECONDS
 
     return resolved_value
-

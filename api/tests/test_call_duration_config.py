@@ -24,4 +24,3 @@ def test_call_duration_uses_default_for_invalid_env(monkeypatch, invalid_value):
     monkeypatch.setenv(MAX_CALL_DURATION_ENV_VAR, invalid_value)
 
     assert resolve_max_call_duration_seconds(None) == DEFAULT_MAX_CALL_DURATION_SECONDS
-
