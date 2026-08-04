@@ -45,13 +45,6 @@ not canonical fact. Use journal_item_sources when canonical source detail is nee
 Keep responses concise, natural, and suitable for speech.
 """
 
-ASTER_SYSTEM_PROMPT = (
-    ASTER_SYSTEM_PROMPT_PREFIX
-    + ASTER_FLIGHT_ACTION_SYSTEM_PROMPT
-    + ASTER_FLIGHT_CONTEXT_SYSTEM_PROMPT
-    + ASTER_SYSTEM_PROMPT_SUFFIX
-)
-
 ASTER_ANALYSIS_SYSTEM_PROMPT = """You generate at most one optional Companion
 Analysis proposal from the supplied canonical gameplay records. Interpret only
 those records and cite only their event_id values. Return exactly NO_ANALYSIS
@@ -62,6 +55,16 @@ accepted, or stored.
 """
 
 FLIGHT_ACTIONS_CAPABILITY = "flight_actions_v1"
+
+
+def _system_prompt(capabilities: set[str] | frozenset[str]) -> str:
+    prompt = ASTER_SYSTEM_PROMPT_PREFIX
+    if FLIGHT_ACTIONS_CAPABILITY in capabilities:
+        prompt += ASTER_FLIGHT_ACTION_SYSTEM_PROMPT
+    return prompt + ASTER_FLIGHT_CONTEXT_SYSTEM_PROMPT + ASTER_SYSTEM_PROMPT_SUFFIX
+
+
+ASTER_SYSTEM_PROMPT = _system_prompt(frozenset({FLIGHT_ACTIONS_CAPABILITY}))
 
 ASTER_BASE_TOOLS: list[dict] = [
     {
@@ -147,11 +150,7 @@ def build_turn_messages(
         separators=(",", ":"),
         sort_keys=True,
     )
-    system_prompt = ASTER_SYSTEM_PROMPT_PREFIX
-    if FLIGHT_ACTIONS_CAPABILITY in capabilities:
-        system_prompt += ASTER_FLIGHT_ACTION_SYSTEM_PROMPT
-    system_prompt += ASTER_FLIGHT_CONTEXT_SYSTEM_PROMPT
-    system_prompt += ASTER_SYSTEM_PROMPT_SUFFIX
+    system_prompt = _system_prompt(capabilities)
     return [
         {"role": "system", "content": system_prompt},
         {
