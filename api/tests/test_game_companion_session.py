@@ -89,6 +89,10 @@ def fake_providers(*, stt=None, llm=None, tts=None):
     )
 
 
+def enable_flight_actions(session: CompanionSession) -> None:
+    session.set_client_capabilities(["tools", FLIGHT_ACTIONS_CAPABILITY])
+
+
 async def wait_for_event(session, event_type, *, timeout=1.0):
     async with asyncio.timeout(timeout):
         while True:
@@ -554,6 +558,35 @@ async def test_session_offers_flight_actions_only_after_capability_negotiation()
     await capable_session.close()
 
 
+async def test_legacy_session_rejects_unoffered_flight_tool_calls():
+    llm = FakeLLM(
+        [
+            LLMResult(
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="ungated-flight",
+                        name="request_supercruise",
+                        arguments={},
+                    ),
+                )
+            )
+        ]
+    )
+    session = CompanionSession(providers=fake_providers(llm=llm))
+    session.set_client_capabilities(["pcm_s16le", "tools"])
+    await session.start_turn("turn-legacy-flight", {})
+    await session.append_audio("turn-legacy-flight", b"\x00\x00")
+    await session.end_turn("turn-legacy-flight")
+    await session.wait_for_turn("turn-legacy-flight")
+
+    assert not any(isinstance(event, ToolCall) for event in session.outbound_events)
+    assert any(
+        isinstance(event, ErrorMessage) and event.code == "provider_failure"
+        for event in session.outbound_events
+    )
+    await session.close()
+
+
 @pytest.mark.parametrize(
     ("name", "result", "narration"),
     [
@@ -602,6 +635,7 @@ async def test_gameplay_action_results_are_typed_and_narrated(name, result, narr
     )
     tts = FakeTTS()
     session = CompanionSession(providers=fake_providers(llm=llm, tts=tts))
+    enable_flight_actions(session)
     await session.start_turn("turn-action", {})
     await session.append_audio("turn-action", b"\x00\x00")
     await session.end_turn("turn-action")
@@ -703,6 +737,7 @@ async def test_gameplay_action_arguments_must_be_empty_before_emission(name):
         ]
     )
     session = CompanionSession(providers=fake_providers(llm=llm))
+    enable_flight_actions(session)
     await session.start_turn("turn-action", {})
     await session.append_audio("turn-action", b"\x00\x00")
     await session.end_turn("turn-action")
@@ -774,6 +809,7 @@ async def test_gameplay_action_result_shape_is_bounded_and_exact(invalid_result)
         ]
     )
     session = CompanionSession(providers=fake_providers(llm=llm))
+    enable_flight_actions(session)
     await session.start_turn("turn-action", {})
     await session.append_audio("turn-action", b"\x00\x00")
     await session.end_turn("turn-action")
@@ -824,6 +860,7 @@ async def test_gameplay_action_result_requires_matching_turn_and_call_ids():
         ]
     )
     session = CompanionSession(providers=fake_providers(llm=llm))
+    enable_flight_actions(session)
     await session.start_turn("turn-action", {})
     await session.append_audio("turn-action", b"\x00\x00")
     await session.end_turn("turn-action")

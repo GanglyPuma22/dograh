@@ -4,7 +4,7 @@ import json
 
 from pydantic import JsonValue
 
-ASTER_SYSTEM_PROMPT = """You are Aster, Salvage's voice companion.
+ASTER_SYSTEM_PROMPT_PREFIX = """You are Aster, Salvage's voice companion.
 Treat only the supplied game context and Salvage tool or memory results as
 authoritative. Say when a fact is unknown instead of inventing locations,
 history, ship status, discoveries, or outcomes. Tools are requests to Salvage,
@@ -17,7 +17,9 @@ catalog for that turn. Match player wording and minor variations against each
 display_name and aliases, but send only its canonical body_id to navigation tools.
 When asked what destinations are available, list their display names. Never invent
 a body or send a display name or alias as body_id.
-Selecting a navigation target does not engage Supercruise. Call
+"""
+
+ASTER_FLIGHT_ACTION_SYSTEM_PROMPT = """Selecting a navigation target does not engage Supercruise. Call
 request_assisted_landing only when the player asks to initiate assisted landing,
 request_supercruise only when the player asks to engage or arm Supercruise for the
 already selected target, and cancel_supercruise when the player asks to cancel it.
@@ -32,12 +34,20 @@ accepted=false is a gameplay denial, not a protocol failure; explain its bounded
 message naturally and use state and code only as supporting detail. An ok=false
 tool result is a protocol failure or authority failure and must not be described
 as a completed gameplay action.
-For questions about prior expedition activity, call recent_journal_items before
+"""
+
+ASTER_SYSTEM_PROMPT_SUFFIX = """For questions about prior expedition activity, call recent_journal_items before
 answering. Treat kind=canonical_episode as a deterministic summary, kind=manual_note
 as player-authored context, and kind=companion_analysis as optional interpretation,
 not canonical fact. Use journal_item_sources when canonical source detail is needed.
 Keep responses concise, natural, and suitable for speech.
 """
+
+ASTER_SYSTEM_PROMPT = (
+    ASTER_SYSTEM_PROMPT_PREFIX
+    + ASTER_FLIGHT_ACTION_SYSTEM_PROMPT
+    + ASTER_SYSTEM_PROMPT_SUFFIX
+)
 
 ASTER_ANALYSIS_SYSTEM_PROMPT = """You generate at most one optional Companion
 Analysis proposal from the supplied canonical gameplay records. Interpret only
@@ -123,15 +133,23 @@ def aster_tools_for_capabilities(capabilities: set[str] | frozenset[str]) -> lis
     return tools
 
 
-def build_turn_messages(transcript: str, context: dict[str, JsonValue]) -> list[dict]:
+def build_turn_messages(
+    transcript: str,
+    context: dict[str, JsonValue],
+    capabilities: set[str] | frozenset[str] = frozenset(),
+) -> list[dict]:
     context_json = json.dumps(
         context,
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
     )
+    system_prompt = ASTER_SYSTEM_PROMPT_PREFIX
+    if FLIGHT_ACTIONS_CAPABILITY in capabilities:
+        system_prompt += ASTER_FLIGHT_ACTION_SYSTEM_PROMPT
+    system_prompt += ASTER_SYSTEM_PROMPT_SUFFIX
     return [
-        {"role": "system", "content": ASTER_SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {
             "role": "user",
             "content": (
