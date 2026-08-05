@@ -37,7 +37,9 @@ class FakeFishResponse:
     ):
         self.chunks = list(chunks)
         self.status_code = status_code
-        self.headers = {"content-type": content_type}
+        self.headers = (
+            {"content-type": content_type} if content_type is not None else {}
+        )
         self.stream_error = stream_error
         self.enter_count = 0
         self.exit_count = 0
@@ -551,6 +553,23 @@ async def test_fish_tts_streams_first_pcm_chunk_before_response_completes():
     assert response.exit_count == 1
 
 
+async def test_fish_tts_accepts_fish_audio_pcm_response():
+    response = FakeFishResponse(
+        [b"\x01\x00", b"\x02\x00"],
+        content_type="audio/pcm; rate=24000",
+    )
+    adapter = FishTTSAdapter(
+        FishTTSSettings(api_key="fish-test-secret"),
+        client=FakeFishHTTPClient(response),
+    )
+
+    chunks = [chunk async for chunk in adapter.synthesize("Course is set.")]
+
+    assert [chunk.audio for chunk in chunks] == [b"\x01\x00", b"\x02\x00"]
+    assert all(chunk.sample_rate == 24000 for chunk in chunks)
+    assert all(chunk.channels == 1 for chunk in chunks)
+
+
 async def test_fish_tts_sends_bounded_pcm_request_without_logging_or_buffering():
     response = FakeFishResponse([b"\x01\x00"])
     client = FakeFishHTTPClient(response)
@@ -574,7 +593,7 @@ async def test_fish_tts_sends_bounded_pcm_request_without_logging_or_buffering()
                 "headers": {
                     "Authorization": "Bearer fish-test-secret",
                     "model": "s2.1-pro-free",
-                    "Accept": "application/octet-stream",
+                    "Accept": "audio/pcm, application/octet-stream",
                 },
                 "json": {
                     "text": "Private response text",
@@ -693,7 +712,12 @@ async def test_fish_tts_rejects_http_failure_without_reading_or_exposing_body():
 
 @pytest.mark.parametrize(
     "content_type",
-    ["application/json; charset=utf-8", "audio/mpeg"],
+    [
+        None,
+        "application/json; charset=utf-8",
+        "text/plain; charset=utf-8",
+        "audio/mpeg",
+    ],
 )
 async def test_fish_tts_rejects_non_pcm_success_response_before_streaming(
     content_type,
