@@ -36,6 +36,15 @@ leave `DOGRAH_GAME_COMPANION_ENABLED=1`. If you select Fish TTS, also configure
 `FISH_API_KEY` and the desired Fish settings in that file. Never commit the
 populated environment file.
 
+The Salvage profile publishes MinIO only on loopback. Its API and console use
+ports `9000` and `9001` by default. If either port is already in use, set
+`MINIO_API_HOST_PORT` and `MINIO_CONSOLE_HOST_PORT` to free host ports in
+`api/.env.salvage`. The browser-facing `MINIO_PUBLIC_ENDPOINT` derives from
+`MINIO_API_HOST_PORT`; set it explicitly only when the browser must use a
+different URL. These URLs rely on the local-development bucket's anonymous
+object policy, not presigned requests. The host settings do not change the
+internal `minio:9000` service endpoint.
+
 Launch the local stack with the Salvage environment explicitly loaded:
 
 ```bash

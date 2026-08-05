@@ -7,6 +7,11 @@ services:
     ports: !override
       - "127.0.0.1:6379:6379"
 
+  minio:
+    ports: !override
+      - "127.0.0.1:${MINIO_API_HOST_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
+
   cloudflared:
     profiles: ["remote"]
 
@@ -16,6 +21,7 @@ services:
       dockerfile: api/Dockerfile
     image: dograh-api:salvage-local
     environment:
+      MINIO_PUBLIC_ENDPOINT: "${MINIO_PUBLIC_ENDPOINT:-http://localhost:${MINIO_API_HOST_PORT:-9000}}"
       DOGRAH_GAME_COMPANION_ENABLED: "${DOGRAH_GAME_COMPANION_ENABLED:-0}"
       DOGRAH_GAME_COMPANION_TOKEN: "${DOGRAH_GAME_COMPANION_TOKEN:-}"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
