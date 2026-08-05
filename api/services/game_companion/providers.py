@@ -34,6 +34,7 @@ MAX_FISH_REQUEST_TIMEOUT_SECONDS = 44.0
 DEFAULT_FISH_FALLBACK_COOLDOWN_SECONDS = 60.0
 FISH_MODELS = frozenset({"s2.1-pro-free", "s2.1-pro"})
 FISH_LATENCY_MODES = frozenset({"low", "balanced", "normal"})
+FISH_PCM_MEDIA_TYPES = frozenset({"application/octet-stream", "audio/pcm"})
 TTS_PROVIDERS = frozenset({"openrouter", "fish"})
 MAX_LLM_RESPONSE_BYTES = 64 * 1024
 MAX_ANALYSIS_LLM_RESPONSE_BYTES = 16 * 1024
@@ -447,7 +448,7 @@ class FishTTSAdapter:
             headers={
                 "Authorization": f"Bearer {self.settings.api_key}",
                 "model": self.settings.model,
-                "Accept": "application/octet-stream",
+                "Accept": "audio/pcm, application/octet-stream",
             },
             json=payload,
             timeout=self.settings.request_timeout_seconds,
@@ -458,7 +459,7 @@ class FishTTSAdapter:
                 )
             content_type = response.headers.get("content-type", "")
             media_type = content_type.partition(";")[0].strip().lower()
-            if media_type != "application/octet-stream":
+            if media_type not in FISH_PCM_MEDIA_TYPES:
                 raise ProviderError("Fish TTS returned an unsupported content type")
 
             async for http_chunk in response.aiter_bytes():
