@@ -12,7 +12,9 @@ not completed actions; describe an action as complete only after Salvage returns
 a successful result. Companion Analysis is optional interpretation, never a
 canonical fact and is generated separately after the spoken reply. Never say
 that Companion Analysis was saved or accepted, and never promise to store it.
-When game context includes navigable_bodies, treat it as the complete destination
+"""
+
+ASTER_NAVIGATION_SYSTEM_PROMPT = """When game context includes navigable_bodies, treat it as the complete destination
 catalog for that turn. Match player wording and minor variations against each
 display_name and aliases, but send only its canonical body_id to navigation tools.
 When asked what destinations are available, list their display names. Never invent
@@ -23,6 +25,10 @@ ASTER_FLIGHT_ACTION_SYSTEM_PROMPT = """Selecting a navigation target does not en
 request_assisted_landing only when the player asks to initiate assisted landing,
 request_supercruise only when the player asks to engage or arm Supercruise for the
 already selected target, and cancel_supercruise when the player asks to cancel it.
+"""
+
+ASTER_LANDING_ACTION_SYSTEM_PROMPT = """Call request_assisted_landing only when
+the player asks to initiate assisted landing.
 """
 
 ASTER_FLIGHT_CONTEXT_SYSTEM_PROMPT = """Use landing context to answer availability and status questions, including
@@ -36,6 +42,17 @@ accepted=false is a gameplay denial, not a protocol failure; explain its bounded
 message naturally and use state and code only as supporting detail. An ok=false
 tool result is a protocol failure or authority failure and must not be described
 as a completed gameplay action.
+"""
+
+ASTER_LANDING_CONTEXT_SYSTEM_PROMPT = """Use landing context to answer availability
+and status questions, including assisted_landing_available, overall_state,
+blocking_reasons, and recommended_cue, without calling a tool. Salvage decides
+eligibility, safety, acceptance, and flight authority; never calculate or override
+those decisions. For a typed gameplay result, accepted=true means Salvage accepted
+the request. accepted=false is a gameplay denial; explain its bounded message
+naturally and use state and code only as supporting detail. An ok=false tool
+result is a protocol failure or authority failure and must not be described as
+a completed gameplay action.
 """
 
 ASTER_SYSTEM_PROMPT_SUFFIX = """For questions about prior expedition activity, call recent_journal_items before
@@ -57,11 +74,33 @@ accepted, or stored.
 FLIGHT_ACTIONS_CAPABILITY = "flight_actions_v1"
 
 
-def _system_prompt(capabilities: set[str] | frozenset[str]) -> str:
+def navigation_available(context: dict[str, JsonValue] | None) -> bool:
+    if context is None or "discovery" not in context:
+        return True
+    discovery = context["discovery"]
+    return isinstance(discovery, dict) and discovery.get("map_available") is True
+
+
+def _system_prompt(
+    capabilities: set[str] | frozenset[str],
+    context: dict[str, JsonValue] | None = None,
+) -> str:
+    navigation = navigation_available(context)
     prompt = ASTER_SYSTEM_PROMPT_PREFIX
+    if navigation:
+        prompt += ASTER_NAVIGATION_SYSTEM_PROMPT
     if FLIGHT_ACTIONS_CAPABILITY in capabilities:
-        prompt += ASTER_FLIGHT_ACTION_SYSTEM_PROMPT
-    return prompt + ASTER_FLIGHT_CONTEXT_SYSTEM_PROMPT + ASTER_SYSTEM_PROMPT_SUFFIX
+        prompt += (
+            ASTER_FLIGHT_ACTION_SYSTEM_PROMPT
+            if navigation
+            else ASTER_LANDING_ACTION_SYSTEM_PROMPT
+        )
+    prompt += (
+        ASTER_FLIGHT_CONTEXT_SYSTEM_PROMPT
+        if navigation
+        else ASTER_LANDING_CONTEXT_SYSTEM_PROMPT
+    )
+    return prompt + ASTER_SYSTEM_PROMPT_SUFFIX
 
 
 ASTER_SYSTEM_PROMPT = _system_prompt(frozenset({FLIGHT_ACTIONS_CAPABILITY}))
@@ -132,10 +171,16 @@ ASTER_FLIGHT_ACTION_TOOLS: list[dict] = [
 ASTER_TOOLS: list[dict] = ASTER_BASE_TOOLS + ASTER_FLIGHT_ACTION_TOOLS
 
 
-def aster_tools_for_capabilities(capabilities: set[str] | frozenset[str]) -> list[dict]:
-    tools = list(ASTER_BASE_TOOLS)
+def aster_tools_for_capabilities(
+    capabilities: set[str] | frozenset[str],
+    context: dict[str, JsonValue] | None = None,
+) -> list[dict]:
+    navigation = navigation_available(context)
+    tools = list(ASTER_BASE_TOOLS) if navigation else []
     if FLIGHT_ACTIONS_CAPABILITY in capabilities:
-        tools.extend(ASTER_FLIGHT_ACTION_TOOLS)
+        tools.extend(
+            ASTER_FLIGHT_ACTION_TOOLS if navigation else ASTER_FLIGHT_ACTION_TOOLS[:1]
+        )
     return tools
 
 
@@ -144,13 +189,26 @@ def build_turn_messages(
     context: dict[str, JsonValue],
     capabilities: set[str] | frozenset[str] = frozenset(),
 ) -> list[dict]:
+    model_context = context
+    if not navigation_available(context):
+        model_context = {
+            key: value
+            for key, value in context.items()
+            if key
+            not in {
+                "navigable_bodies",
+                "target_body_id",
+                "navigation_status",
+                "supercruise",
+            }
+        }
     context_json = json.dumps(
-        context,
+        model_context,
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
     )
-    system_prompt = _system_prompt(capabilities)
+    system_prompt = _system_prompt(capabilities, context)
     return [
         {"role": "system", "content": system_prompt},
         {

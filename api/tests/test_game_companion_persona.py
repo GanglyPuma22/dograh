@@ -49,6 +49,56 @@ def test_flight_actions_are_offered_only_to_capable_clients():
     assert capable_names == set(_tool_functions())
 
 
+def test_discovery_hides_navigation_until_map_is_earned():
+    capabilities = {FLIGHT_ACTIONS_CAPABILITY}
+    hidden_context = {
+        "discovery": {"sample_state": "uncollected"},
+        "navigable_bodies": [{"body_id": "hidden", "display_name": "Hidden World"}],
+        "target_body_id": "hidden",
+        "navigation_status": "target_selected",
+        "supercruise": {"target_display_name": "Hidden World"},
+    }
+    for map_state in (None, False, "true"):
+        context = dict(hidden_context)
+        context["discovery"] = {"map_available": map_state}
+        names = {
+            tool["function"]["name"]
+            for tool in aster_tools_for_capabilities(capabilities, context)
+        }
+        messages = build_turn_messages("Hello", context, capabilities)
+        prompt = messages[0]["content"].lower()
+        supplied_context = messages[1]["content"]
+
+        assert names == {"request_assisted_landing"}
+        for hint in (
+            "navigable_bodies",
+            "destination",
+            "navigation target",
+            "supercruise",
+            "system map",
+        ):
+            assert hint not in prompt
+        for hint in (
+            "Hidden World",
+            "navigable_bodies",
+            "target_body_id",
+            "navigation_status",
+            "supercruise",
+        ):
+            assert hint not in supplied_context
+
+    earned_context = {"discovery": {"map_available": True}}
+    earned_names = {
+        tool["function"]["name"]
+        for tool in aster_tools_for_capabilities(capabilities, earned_context)
+    }
+    earned_prompt = build_turn_messages("Hello", earned_context, capabilities)[0][
+        "content"
+    ]
+    assert earned_names == set(_tool_functions())
+    assert "navigable_bodies" in earned_prompt
+
+
 def test_flight_action_guidance_is_scoped_to_capable_clients():
     legacy_prompt = build_turn_messages("Land the ship", {}, {"pcm_s16le", "tools"})[0][
         "content"

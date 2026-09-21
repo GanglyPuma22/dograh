@@ -20,6 +20,7 @@ from api.services.game_companion.persona import (
     aster_tools_for_capabilities,
     build_analysis_messages,
     build_turn_messages,
+    navigation_available,
 )
 from api.services.game_companion.protocol import (
     MAX_BINARY_FRAME_BYTES,
@@ -591,7 +592,9 @@ class CompanionSession:
             async with asyncio.timeout(self.timeouts.llm):
                 result = await self.providers.llm.respond(
                     messages,
-                    aster_tools_for_capabilities(self._client_capabilities)
+                    aster_tools_for_capabilities(
+                        self._client_capabilities, runtime.context
+                    )
                     + MEMORY_QUERY_TOOLS,
                 )
             round_elapsed_ms = _elapsed_ms(round_started_at, self._monotonic())
@@ -666,7 +669,7 @@ class CompanionSession:
             if call.call_id in runtime.used_action_ids:
                 raise ProviderError("OpenRouter LLM repeated a tool call ID")
             runtime.used_action_ids.add(call.call_id)
-            if call.name in self._allowed_gameplay_tool_names():
+            if call.name in self._allowed_gameplay_tool_names(runtime.context):
                 if call.name == "set_navigation_target":
                     arguments = _normalize_navigation_arguments(call.arguments)
                 else:
@@ -749,10 +752,20 @@ class CompanionSession:
                     runtime.pending_memory_results.pop(call.call_id, None)
         return results
 
-    def _allowed_gameplay_tool_names(self) -> frozenset[str]:
+    def _allowed_gameplay_tool_names(
+        self, context: dict[str, JsonValue]
+    ) -> frozenset[str]:
         if FLIGHT_ACTIONS_CAPABILITY in self._client_capabilities:
-            return GAMEPLAY_TOOL_NAMES
-        return GAMEPLAY_TOOL_NAMES - GAMEPLAY_ACTION_NAMES
+            names = GAMEPLAY_TOOL_NAMES
+        else:
+            names = GAMEPLAY_TOOL_NAMES - GAMEPLAY_ACTION_NAMES
+        if not navigation_available(context):
+            names -= {
+                "set_navigation_target",
+                "request_supercruise",
+                "cancel_supercruise",
+            }
+        return names
 
     async def _speak(self, runtime: _TurnRuntime, text: str) -> None:
         if not await self._emit(

@@ -30,7 +30,11 @@ from api.services.game_companion.providers import (
     PCMChunk,
     ProviderSet,
 )
-from api.services.game_companion.session import CompanionSession, ProviderTimeouts
+from api.services.game_companion.session import (
+    MEMORY_QUERY_NAMES,
+    CompanionSession,
+    ProviderTimeouts,
+)
 
 
 class FakeSTT:
@@ -556,6 +560,52 @@ async def test_session_offers_flight_actions_only_after_capability_negotiation()
 
     await legacy_session.close()
     await capable_session.close()
+
+
+async def test_discovery_turn_offers_only_landing_before_map_is_available():
+    llm = FakeLLM()
+    session = CompanionSession(providers=fake_providers(llm=llm))
+    session.set_client_capabilities(["pcm_s16le", "tools", FLIGHT_ACTIONS_CAPABILITY])
+    await session.start_turn(
+        "turn-discovery", {"discovery": {"sample_state": "uncollected"}}
+    )
+    await session.append_audio("turn-discovery", b"\x00\x00")
+    await session.end_turn("turn-discovery")
+    await session.wait_for_turn("turn-discovery")
+
+    names = {tool["function"]["name"] for tool in llm.calls[0]["tools"]}
+    assert names == {"request_assisted_landing", *MEMORY_QUERY_NAMES}
+    await session.close()
+
+
+@pytest.mark.parametrize(
+    "name", ["set_navigation_target", "request_supercruise", "cancel_supercruise"]
+)
+async def test_discovery_turn_rejects_unoffered_navigation_tool(name):
+    llm = FakeLLM(
+        [
+            LLMResult(
+                tool_calls=(
+                    LLMToolCall(call_id="hidden-navigation", name=name, arguments={}),
+                )
+            )
+        ]
+    )
+    session = CompanionSession(providers=fake_providers(llm=llm))
+    session.set_client_capabilities(["pcm_s16le", "tools", FLIGHT_ACTIONS_CAPABILITY])
+    await session.start_turn(
+        "turn-hidden-navigation", {"discovery": {"map_available": False}}
+    )
+    await session.append_audio("turn-hidden-navigation", b"\x00\x00")
+    await session.end_turn("turn-hidden-navigation")
+    await session.wait_for_turn("turn-hidden-navigation")
+
+    assert not any(isinstance(event, ToolCall) for event in session.outbound_events)
+    assert any(
+        isinstance(event, ErrorMessage) and event.code == "provider_failure"
+        for event in session.outbound_events
+    )
+    await session.close()
 
 
 async def test_legacy_session_rejects_unoffered_flight_tool_calls():
