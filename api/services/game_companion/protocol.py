@@ -84,6 +84,19 @@ class TurnStart(TurnMessage):
         return value
 
 
+class GameEvent(TurnStart):
+    """An earned game observation, never synthetic microphone/player input."""
+    type: Literal["game_event"]
+    event: Literal["station_assay_complete"]
+
+    @model_validator(mode="after")
+    def station_result_is_earned(self):
+        discovery = self.context.get("discovery", {})
+        if not isinstance(discovery, dict) or discovery.get("station_sample_state") != "receiver_ready" or discovery.get("receiver_owned") is not True:
+            raise ValueError("station event requires the completed assay and owned receiver")
+        return self
+
+
 class TurnEnd(TurnMessage):
     type: Literal["turn_end"]
 
@@ -135,6 +148,7 @@ class HelloAck(ControlMessage):
     protocol_version: Literal[PROTOCOL_VERSION]
     session_id: Identifier
     companion: Literal["Aster"]
+    capabilities: list[Capability] = Field(default_factory=list, max_length=16)
     audio: AudioFormat
 
 
@@ -220,7 +234,7 @@ class ErrorMessage(TurnMessage):
 
 
 ClientMessage: TypeAlias = (
-    Hello | TurnStart | TurnEnd | Interrupt | ToolResult | MemoryResult
+    Hello | TurnStart | GameEvent | TurnEnd | Interrupt | ToolResult | MemoryResult
 )
 ServerMessage: TypeAlias = (
     HelloAck
@@ -241,7 +255,7 @@ _ServerMessageAdapter = TypeAdapter(
     Annotated[ServerMessage, Field(discriminator="type")]
 )
 _CLIENT_TYPES = frozenset(
-    {"hello", "turn_start", "turn_end", "interrupt", "tool_result", "memory_result"}
+    {"hello", "turn_start", "game_event", "turn_end", "interrupt", "tool_result", "memory_result"}
 )
 _SERVER_TYPES = frozenset(
     {
@@ -428,7 +442,7 @@ class ClientMessageOrder:
             if interrupted_turn_id is not None:
                 self._retire_turn(interrupted_turn_id)
             self.active_turn_id = message.turn_id
-            self.input_open = True
+            self.input_open = not isinstance(message, GameEvent)
             self.turn_audio_bytes = 0
             return interrupted_turn_id
 

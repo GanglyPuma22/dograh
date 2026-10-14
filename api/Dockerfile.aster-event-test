@@ -1,0 +1,11 @@
+FROM dograh-api:salvage-local AS runtime
+COPY --chown=dograh:dograh api/services/game_companion/ /app/api/services/game_companion/
+COPY --chown=dograh:dograh api/routes/game_companion.py /app/api/routes/game_companion.py
+FROM runtime AS tests
+USER root
+RUN python -m pip install --disable-pip-version-check pytest==9.1.1 pytest-asyncio==1.4.0
+COPY api/tests/test_game_companion*.py /tmp/aster-tests/
+COPY api/tests/fixtures/ /tmp/aster-tests/fixtures/
+COPY api/routes/main.py /tmp/routes/main.py
+WORKDIR /app
+ENTRYPOINT ["python", "-m", "pytest", "--confcutdir=/tmp/aster-tests", "-q", "/tmp/aster-tests"]

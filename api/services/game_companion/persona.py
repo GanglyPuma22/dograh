@@ -232,3 +232,22 @@ def build_analysis_messages(records: list[dict[str, JsonValue]]) -> list[dict]:
         {"role": "system", "content": ASTER_ANALYSIS_SYSTEM_PROMPT},
         {"role": "user", "content": records_json},
     ]
+
+
+def build_game_event_messages(event: str, context: dict[str, JsonValue], capabilities=frozenset()) -> list[dict]:
+    if event != "station_assay_complete":
+        raise ValueError("unsupported game event")
+    messages = build_turn_messages("", context, capabilities)
+    # Keep the existing visibility filtering and persona. Explicitly distinguish
+    # game observation from player speech; there was no microphone turn.
+    messages[-1]["content"] = messages[-1]["content"].replace(
+        "\n\nPlayer speech:\n", "\n\nGame event: station_assay_complete. No player has spoken.\n"
+    ) + (
+        "The station assay just completed and the player now owns the pocket receiver. "
+        "Initiate one brief, natural conversation as Aster: acknowledge that result and ask "
+        "one question inviting the player to interpret it together. Maximum two short sentences. "
+        "Do not invent a display trace, detected signal, sender, moon connection, material property "
+        "or ecological fact absent from the context. Do not perform actions or claim a saved analysis. "
+        "Do not answer your own question; leave room for the player to respond."
+    )
+    return messages

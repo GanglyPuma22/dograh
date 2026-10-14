@@ -20,6 +20,7 @@ from api.services.game_companion.persona import (
     aster_tools_for_capabilities,
     build_analysis_messages,
     build_turn_messages,
+    build_game_event_messages,
     navigation_available,
 )
 from api.services.game_companion.protocol import (
@@ -312,6 +313,7 @@ class _TurnRuntime:
     analysis_event_ids: set[str] = field(default_factory=set)
     analysis_attempted: bool = False
     processing_started_at: float = 0.0
+    game_event: str | None = None
 
 
 class CompanionSession:
@@ -391,6 +393,18 @@ class CompanionSession:
             runtime,
             State(type="state", turn_id=turn_id, state="listening"),
         )
+
+    async def start_game_event(self, turn_id: str, context: dict[str, JsonValue], event: str) -> None:
+        # Validate even for non-WebSocket callers, before interrupting another turn.
+        from api.services.game_companion.protocol import GameEvent
+        GameEvent(type="game_event", turn_id=turn_id, context=context, event=event)
+        await self.start_turn(turn_id, context)
+        runtime = self._require_active(turn_id)
+        runtime.game_event = event
+        runtime.input_closed = True
+        runtime.task = asyncio.create_task(self._run_turn(runtime), name=f"game-companion-event-{turn_id}")
+        self._retain_turn_task(turn_id, runtime.task)
+        self._track_background_task(runtime.task)
 
     async def append_audio(self, turn_id: str, audio: bytes) -> None:
         runtime = self._require_active(turn_id)
@@ -504,48 +518,51 @@ class CompanionSession:
     async def _run_turn(self, runtime: _TurnRuntime) -> None:
         try:
             runtime.processing_started_at = self._monotonic()
-            wav_audio = pcm_s16le_to_wav(
-                bytes(runtime.audio),
-                sample_rate=self.input_sample_rate,
-                channels=1,
-            )
-            runtime.audio.clear()
-            stt_started_at = self._monotonic()
-            async with asyncio.timeout(self.timeouts.stt):
-                transcript = await self.providers.stt.transcribe(wav_audio)
-            self._record_metric(
-                "stt_complete",
-                runtime,
-                elapsed_ms=_elapsed_ms(stt_started_at, self._monotonic()),
-            )
-            if not self._owns(runtime):
-                return
-            if not transcript.strip():
-                await self._fail(
-                    runtime,
-                    code="no_speech_detected",
-                    message="No speech was detected.",
+            if runtime.game_event is None:
+                wav_audio = pcm_s16le_to_wav(
+                    bytes(runtime.audio),
+                    sample_rate=self.input_sample_rate,
+                    channels=1,
                 )
-                return
-            if not await self._emit(
-                runtime,
-                Caption(
-                    type="caption",
-                    turn_id=runtime.turn_id,
-                    speaker="player",
-                    text=_caption_text(transcript),
-                    final=True,
-                ),
-            ):
-                return
+                runtime.audio.clear()
+                stt_started_at = self._monotonic()
+                async with asyncio.timeout(self.timeouts.stt):
+                    transcript = await self.providers.stt.transcribe(wav_audio)
+                self._record_metric(
+                    "stt_complete",
+                    runtime,
+                    elapsed_ms=_elapsed_ms(stt_started_at, self._monotonic()),
+                )
+                if not self._owns(runtime):
+                    return
+                if not transcript.strip():
+                    await self._fail(
+                        runtime,
+                        code="no_speech_detected",
+                        message="No speech was detected.",
+                    )
+                    return
+                if not await self._emit(
+                    runtime,
+                    Caption(
+                        type="caption",
+                        turn_id=runtime.turn_id,
+                        speaker="player",
+                        text=_caption_text(transcript),
+                        final=True,
+                    ),
+                ):
+                    return
             if not await self._emit(
                 runtime,
                 State(type="state", turn_id=runtime.turn_id, state="thinking"),
             ):
                 return
 
-            messages = build_turn_messages(
-                transcript, runtime.context, self._client_capabilities
+            messages = (
+                build_game_event_messages(runtime.game_event, runtime.context, self._client_capabilities)
+                if runtime.game_event is not None else
+                build_turn_messages(transcript, runtime.context, self._client_capabilities)
             )
             response_text = await self._respond_with_tools(runtime, messages)
             if not self._owns(runtime):
@@ -554,7 +571,8 @@ class CompanionSession:
                 raise ProviderError("OpenRouter LLM returned no final narration")
             response_text = _filter_unsupported_persistence_claims(response_text)
             await self._speak(runtime, response_text)
-            await self._maybe_propose_annotation(runtime)
+            if runtime.game_event is None:
+                await self._maybe_propose_annotation(runtime)
         except asyncio.CancelledError:
             raise
         except TimeoutError:
@@ -592,10 +610,10 @@ class CompanionSession:
             async with asyncio.timeout(self.timeouts.llm):
                 result = await self.providers.llm.respond(
                     messages,
-                    aster_tools_for_capabilities(
-                        self._client_capabilities, runtime.context
-                    )
-                    + MEMORY_QUERY_TOOLS,
+                    [] if runtime.game_event is not None else (
+                        aster_tools_for_capabilities(self._client_capabilities, runtime.context)
+                        + MEMORY_QUERY_TOOLS
+                    ),
                 )
             round_elapsed_ms = _elapsed_ms(round_started_at, self._monotonic())
             provider_elapsed_ms += round_elapsed_ms
@@ -619,6 +637,8 @@ class CompanionSession:
                     ),
                 )
                 return result.text.strip()
+            if runtime.game_event is not None:
+                raise ProviderError("Game-event opening cannot request actions")
             action_results = await self._request_actions(runtime, result)
             messages.extend(_action_result_messages(result, action_results))
         raise ProviderError("OpenRouter LLM exceeded the tool-call limit")

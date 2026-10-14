@@ -23,6 +23,7 @@ from api.services.game_companion.protocol import (
     ErrorMessage,
     Hello,
     HelloAck,
+    GameEvent,
     Interrupt,
     MemoryResult,
     ProtocolError,
@@ -146,6 +147,7 @@ async def serve_game_companion(
                             protocol_version=PROTOCOL_VERSION,
                             session_id=str(uuid.uuid4()),
                             companion="Aster",
+                            capabilities=["game_events_v1"],
                             audio=AudioFormat(
                                 sample_rate=16000,
                                 channels=1,
@@ -159,7 +161,9 @@ async def serve_game_companion(
                     raise ProtocolError(
                         "hello_required", "hello must be the first frame"
                     )
-                if isinstance(message, TurnStart):
+                if isinstance(message, GameEvent):
+                    await session.start_game_event(message.turn_id, message.context, message.event)
+                elif isinstance(message, TurnStart):
                     await session.start_turn(message.turn_id, message.context)
                 elif isinstance(message, TurnEnd):
                     await session.end_turn(message.turn_id)

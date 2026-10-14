@@ -1,0 +1,3 @@
+services:
+  api:
+    image: dograh-api:aster-events-20260925
