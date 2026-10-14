@@ -1,0 +1,169 @@
+{
+  "status": "source_candidate_backend_qualified_game_syntax_parsed",
+  "service_changed": false,
+  "engine_executed": false,
+  "audio_acceptance": "pending",
+  "backend_source": "/home/mmounier/src/dograh-fish-tts-minio-runtime-fix",
+  "backend_candidate": "/home/mmounier/src/aster-first-wake-20260929/backend",
+  "game_source": "/mnt/c/Users/maxim/Documents/SalvageAsterNight-20260929",
+  "game_candidate": "/home/mmounier/src/aster-first-wake-20260929/game-candidate",
+  "test_image_id": "sha256:3f3370583be691313d43e525f3127aa4f1db782c89c37dc2f06a3f7f800b76f2",
+  "runtime_base_image_id": "sha256:b1d20b50f092ac3ab8fd29af4a2c5c2a2fffbb3ac3a2d2bfc80370892fd2e5bf",
+  "files": [
+    {
+      "kind": "backend",
+      "path": "api/services/game_companion/protocol.py",
+      "source_sha256": "9beb3991f789319a43addbea82090456bce834f17affa5452f85870c8485b004",
+      "candidate_sha256": "764f27cf7600542f3e042256f69db5624ef9e42c0619e00c8adc45c465dd537e"
+    },
+    {
+      "kind": "backend",
+      "path": "api/services/game_companion/persona.py",
+      "source_sha256": "707834d5164aa6b80d5821a36afc55f555bafbd173b4daebb1cbd59b59945feb",
+      "candidate_sha256": "2a87bd612897bc0b7728318ce9258fb929298dc8aae2a61f9ae971e9b8c4f517"
+    },
+    {
+      "kind": "backend",
+      "path": "api/services/game_companion/session.py",
+      "source_sha256": "4854d83458e2043090eb879212d38b82d81e2b23c15008ae7a25395abe829d78",
+      "candidate_sha256": "13e00cb4d678356c99a4a8eb69f8e3d36fcbd9ed0dd19a7dc9f587731ce47b8f"
+    },
+    {
+      "kind": "backend",
+      "path": "api/routes/game_companion.py",
+      "source_sha256": "28b5562584bd6212ebddf79460acd78690e990da1364ebf501a5b194a1a1e70c",
+      "candidate_sha256": "996ea9524d00d6493170eb357984edde896e08c1d318d4cb7a4f3f0cb9969778"
+    },
+    {
+      "kind": "backend",
+      "path": "api/tests/test_game_companion_route.py",
+      "source_sha256": "614f4fe585ac3b0b5a69d8be4801c4996ae0abd617e8ca392b21f533e95c42af",
+      "candidate_sha256": "9f245f0467c0426b50231f00a3f6769c7bff4ddfa9ce88edf06e9ab48d3df16e"
+    },
+    {
+      "kind": "backend",
+      "path": "api/tests/test_game_companion_wake.py",
+      "source_sha256": null,
+      "candidate_sha256": "fdabb3c59d788a4e97cb6a8dd80198529935d06f4ee6810ad4872e279e4d4fde"
+    },
+    {
+      "kind": "game",
+      "path": "game/scripts/companion/companion_client.gd",
+      "source_sha256": "8c8dcea5e8f6bfaf986c6805c2e94fa14793e1e9890e49d5767517c9f857e135",
+      "candidate_sha256": "ab2da2615ee16826cf156442c700f1967803abbf012d35e717149f27860d5cc0"
+    },
+    {
+      "kind": "game",
+      "path": "game/scripts/companion/lilt/lilt_encounter.gd",
+      "source_sha256": "25f09e9395b1e52d70127cd86de308fb782675b2acacc10c7c4be15435937d54",
+      "candidate_sha256": "f33895ef0917b930c5be1448a36e2b3506f46701e8209b82d9d91621889a84c9"
+    },
+    {
+      "kind": "game",
+      "path": "game/tests/test_companion_client.gd",
+      "source_sha256": "42135d86a79e9c9cf32b62a5d4b06f8b09af93f2b2b7b490f5205393363c9e9b",
+      "candidate_sha256": "a91b9039ffc8d27181b984f1e639379e7074e45f8afcef8c3520e7fdaf789ef7"
+    },
+    {
+      "kind": "game",
+      "path": "game/tests/test_lilt_encounter_integration.gd",
+      "source_sha256": "43fb702d1d71ef85780c3c6cc646969309869edf9228d35e07b1c17cfdaab9c4",
+      "candidate_sha256": "77f0a533ab0b4a7c7f2f6fcb915eca14392b1a2471da013c55192799e08f892e"
+    },
+    {
+      "kind": "game",
+      "path": "game/tests/aster_event_check.gd",
+      "source_sha256": "3fa1c2a5a81e75703b6121fa334a718fa09673adeb9db5874619b0b666ef0bae",
+      "candidate_sha256": "5def5b16586cb5989396e9b5ffb37b49c58be4cf4861e4eb9832593785a094e4"
+    }
+  ],
+  "patches": [
+    {
+      "path": "backend.patch",
+      "sha256": "d7d3ff0cd7e673dad895cfd56488a61567079998f3e1551e958c9119dd0138b1",
+      "apply_check": "pass",
+      "candidate_bytes_reproduced": true
+    },
+    {
+      "path": "game.patch",
+      "sha256": "a118f2eedb656e4478d2a5a9cd4dfd7f7ea5bf228a0b8520359fc3e3299f1d29",
+      "apply_check": "pass",
+      "candidate_bytes_reproduced": true
+    }
+  ],
+  "evidence": [
+    {
+      "path": "artifacts/backend-tests.log",
+      "sha256": "65d45a8a3b7c5cedd487438a49beede9aac41c867f5c24c71650cfa8b7fb62fd"
+    },
+    {
+      "path": "artifacts/backend-test-result.json",
+      "sha256": "5e3a3e10023e6c233e426a9087bc65d59f95f2b75ffbc2b1570d1e439f1dbb66"
+    },
+    {
+      "path": "artifacts/gdscript-parse.json",
+      "sha256": "82936c8d8b81375006210bf2bf10da69120eedd4bb752bfde0cd7ae148f8e544"
+    },
+    {
+      "path": "artifacts/studio-doctor.json",
+      "sha256": "e2e758944987b67d8d637bbccaebe261868e68be72d2905fed7c8f4f76f29c18"
+    },
+    {
+      "path": "artifacts/WORK-CARD.md",
+      "sha256": "6ae92f6620d96dd8c0e77b181100d71a19739055f411ff24dd02a365a0b544e9"
+    },
+    {
+      "path": "Dockerfile.wake-candidate",
+      "sha256": "7e054fb48f56c21c49886d181a48268d342c7e9b7d317ec758ba3f53def5c9d3"
+    },
+    {
+      "path": "docker-compose.wake-candidate.yaml",
+      "sha256": "92e76fcf65faafc0d7a07492c718b3cf9a7667d0d77c936797f3c49362a80d95"
+    },
+    {
+      "path": "run_backend_tests.py",
+      "sha256": "8d026ee249a090e3ebb9c6dbcdc1e04cd59ac3a79704b36234121fd400e70e89"
+    },
+    {
+      "path": "parse_game.py",
+      "sha256": "5ce9071f01f921dbd32a2410d374f5e6f3bede02181a22806a03a8124863a45d"
+    },
+    {
+      "path": "package_candidate.py",
+      "sha256": "dc24b0a58ff8e61505ec6e2a0ae1f9aa2d82bf0eda8a2d0ab289b598aec1a67b"
+    },
+    {
+      "path": "WSL-RETURN.md",
+      "sha256": "d9b1348f9fff03b7e0403410a459e348ac3c566ea7b6b2f8b4f6770b13463f9b"
+    },
+    {
+      "path": "game-candidate/game/artifacts/candidate.json",
+      "sha256": "90f716e7fdc8843f2a1346b68f5e21244edd70600b0ecda1cc13493493368438"
+    }
+  ],
+  "routing": [
+    {
+      "path": "/mnt/c/Users/maxim/.codex/plugins/cache/personal/game-studio-kit/0.1.6/studio-kit.json",
+      "sha256": "d13b03c3d77814bae135fd45cbbcce5ec6457558c8b0191d73c6550f8b4e90ab"
+    },
+    {
+      "path": "/mnt/c/Users/maxim/.codex/plugins/cache/personal/game-studio-kit/0.1.6/skills/studio-director/SKILL.md",
+      "sha256": "9e4a8a2ade6dd21db948eae202d7f0b62bcb09d8b9b7b3343a5c93b959b260e3"
+    },
+    {
+      "path": "/mnt/c/Users/maxim/.codex/plugins/cache/personal/game-studio-kit/0.1.6/skills/studio-game-design/SKILL.md",
+      "sha256": "21ab8ddaff7aab2c39427e8400c3ff9aa520dd6d4cbaaf6482bfbf2fc7d03034"
+    },
+    {
+      "path": "/mnt/c/Users/maxim/.codex/plugins/cache/personal/game-studio-kit/0.1.6/skills/studio-godot/SKILL.md",
+      "sha256": "8957559e9764f9f2e79df550c648b77da88328fccb747bc8c1bb1a8ae9ddf1ff"
+    },
+    {
+      "path": "/mnt/c/Users/maxim/.codex/plugins/cache/personal/game-studio-kit/0.1.6/skills/studio-review/SKILL.md",
+      "sha256": "ac742a6e04c8274ffd298a28a0d3434798240bd7389049c2b42360754edeb53e"
+    }
+  ],
+  "game_content_digest": "960bed7a0bcfda58d39f1d086d20214dbc41073955b49afa0cd6dadccd884356",
+  "game_workflow_digest": "c5bf74dd1e693a1190de51a4d982e9603d1d99885354350f05b69434fec9c65e",
+  "backend_inventory_sha256": "7d516457306f1dacb3609d567efc1dddbeaca81c11ca119e73b8e4fdf6225a6b"
+}

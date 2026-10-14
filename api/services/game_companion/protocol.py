@@ -85,12 +85,22 @@ class TurnStart(TurnMessage):
 
 
 class GameEvent(TurnStart):
-    """An earned game observation, never synthetic microphone/player input."""
+    """A validated game event, never synthetic microphone/player input."""
     type: Literal["game_event"]
-    event: Literal["station_assay_complete"]
+    event: Literal["station_assay_complete", "aster_first_wake"]
 
     @model_validator(mode="after")
-    def station_result_is_earned(self):
+    def event_is_earned(self):
+        if self.event == "aster_first_wake":
+            wake = self.context.get("companion_wake", {})
+            if (
+                not isinstance(wake, dict)
+                or wake.get("activated") is not True
+                or wake.get("phase") != "awake"
+                or wake.get("first_activation_this_session") is not True
+            ):
+                raise ValueError("wake event requires a fresh, completed activation")
+            return self
         discovery = self.context.get("discovery", {})
         if not isinstance(discovery, dict) or discovery.get("station_sample_state") != "receiver_ready" or discovery.get("receiver_owned") is not True:
             raise ValueError("station event requires the completed assay and owned receiver")
@@ -320,7 +330,18 @@ def _parse_message(
         first_error = exc.errors(include_url=False)[0]
         location = ".".join(str(part) for part in first_error["loc"])
         detail = first_error["msg"]
-        raise ProtocolError("invalid_message", f"{location}: {detail}") from exc
+        recoverable = False
+        if payload.get("type") == "game_event":
+            # Reject malformed/unknown events without retiring active speech.
+            # An error frame still needs a valid turn identifier.
+            try:
+                TurnMessage.model_validate(payload)
+                recoverable = True
+            except ValidationError:
+                pass
+        raise ProtocolError(
+            "invalid_message", f"{location}: {detail}", recoverable=recoverable
+        ) from exc
 
 
 def parse_client_message(payload: object) -> ClientMessage:

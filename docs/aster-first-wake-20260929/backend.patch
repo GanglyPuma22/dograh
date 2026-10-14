@@ -1,0 +1,522 @@
+--- a/api/services/game_companion/protocol.py
++++ b/api/services/game_companion/protocol.py
+@@ -85,12 +85,22 @@
+ 
+ 
+ class GameEvent(TurnStart):
+-    """An earned game observation, never synthetic microphone/player input."""
++    """A validated game event, never synthetic microphone/player input."""
+     type: Literal["game_event"]
+-    event: Literal["station_assay_complete"]
++    event: Literal["station_assay_complete", "aster_first_wake"]
+ 
+     @model_validator(mode="after")
+-    def station_result_is_earned(self):
++    def event_is_earned(self):
++        if self.event == "aster_first_wake":
++            wake = self.context.get("companion_wake", {})
++            if (
++                not isinstance(wake, dict)
++                or wake.get("activated") is not True
++                or wake.get("phase") != "awake"
++                or wake.get("first_activation_this_session") is not True
++            ):
++                raise ValueError("wake event requires a fresh, completed activation")
++            return self
+         discovery = self.context.get("discovery", {})
+         if not isinstance(discovery, dict) or discovery.get("station_sample_state") != "receiver_ready" or discovery.get("receiver_owned") is not True:
+             raise ValueError("station event requires the completed assay and owned receiver")
+@@ -320,7 +330,18 @@
+         first_error = exc.errors(include_url=False)[0]
+         location = ".".join(str(part) for part in first_error["loc"])
+         detail = first_error["msg"]
+-        raise ProtocolError("invalid_message", f"{location}: {detail}") from exc
++        recoverable = False
++        if payload.get("type") == "game_event":
++            # Reject malformed/unknown events without retiring active speech.
++            # An error frame still needs a valid turn identifier.
++            try:
++                TurnMessage.model_validate(payload)
++                recoverable = True
++            except ValidationError:
++                pass
++        raise ProtocolError(
++            "invalid_message", f"{location}: {detail}", recoverable=recoverable
++        ) from exc
+ 
+ 
+ def parse_client_message(payload: object) -> ClientMessage:
+--- a/api/services/game_companion/persona.py
++++ b/api/services/game_companion/persona.py
+@@ -202,6 +202,13 @@
+                 "supercruise",
+             }
+         }
++    opening_keys = {"recent_aster_opening", "recent_station_opening"}
++    reported_openings = {
++        key: value for key, value in model_context.items() if key in opening_keys
++    }
++    model_context = {
++        key: value for key, value in model_context.items() if key not in opening_keys
++    }
+     context_json = json.dumps(
+         model_context,
+         ensure_ascii=False,
+@@ -209,13 +216,24 @@
+         sort_keys=True,
+     )
+     system_prompt = _system_prompt(capabilities, context)
++    reported_dialogue = ""
++    if reported_openings:
++        system_prompt += (
++            "\nReported opening captions are dialogue context for this reply, not "
++            "authoritative world evidence or proof of what the player heard. "
++            "Audio may have been interrupted or muted. Do not invent prior conversation.\n"
++        )
++        reported_dialogue = (
++            "\n\nReported dialogue (not world evidence or proof of heard audio):\n"
++            + json.dumps(reported_openings, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
++        )
+     return [
+         {"role": "system", "content": system_prompt},
+         {
+             "role": "user",
+             "content": (
+                 "Supplied game context (authoritative JSON):\n"
+-                f"{context_json}\n\nPlayer speech:\n{transcript}"
++                f"{context_json}{reported_dialogue}\n\nPlayer speech:\n{transcript}"
+             ),
+         },
+     ]
+@@ -235,14 +253,26 @@
+ 
+ 
+ def build_game_event_messages(event: str, context: dict[str, JsonValue], capabilities=frozenset()) -> list[dict]:
+-    if event != "station_assay_complete":
++    if event not in {"station_assay_complete", "aster_first_wake"}:
+         raise ValueError("unsupported game event")
+     messages = build_turn_messages("", context, capabilities)
+     # Keep the existing visibility filtering and persona. Explicitly distinguish
+     # game observation from player speech; there was no microphone turn.
+     messages[-1]["content"] = messages[-1]["content"].replace(
+-        "\n\nPlayer speech:\n", "\n\nGame event: station_assay_complete. No player has spoken.\n"
+-    ) + (
++        "\n\nPlayer speech:\n", f"\n\nGame event: {event}. No player has spoken.\n"
++    )
++    if event == "aster_first_wake":
++        messages[-1]["content"] += (
++            "The player has just woken Aster for the first meeting. Give only this brief "
++            "introduction, naturally spoken: Oh—hello. I'm Aster. I can help you make sense "
++            "of this place. Hold the talk key when you want to speak. "
++            "Do not name a particular key; the game displays its current binding. "
++            "No player question needs answering. Do not invent prior conversation, "
++            "an assay result, bench mystery or expedition knowledge. Do not add a tutorial "
++            "monologue, perform actions or claim gameplay progress or saved analysis."
++        )
++        return messages
++    messages[-1]["content"] += (
+         "The station assay just completed and the player now owns the pocket receiver. "
+         "Initiate one brief, natural conversation as Aster: acknowledge that result and ask "
+         "one question inviting the player to interpret it together. Maximum two short sentences. "
+--- a/api/services/game_companion/session.py
++++ b/api/services/game_companion/session.py
+@@ -32,6 +32,7 @@
+     AudioStart,
+     Caption,
+     ErrorMessage,
++    GameEvent,
+     MemoryQuery,
+     MemoryResult,
+     ProtocolError,
+@@ -375,6 +376,11 @@
+         return len(self._background_tasks)
+ 
+     async def start_turn(self, turn_id: str, context: dict[str, JsonValue]) -> None:
++        await self._start_turn(turn_id, context)
++
++    async def _start_turn(
++        self, turn_id: str, context: dict[str, JsonValue], *, game_event: str | None = None
++    ) -> None:
+         self._require_open()
+         self._require_provider_capacity()
+         old_runtime = self._active
+@@ -383,6 +389,8 @@
+             turn_id=turn_id,
+             generation=self._generation,
+             context=dict(context),
++            game_event=game_event,
++            input_closed=game_event is not None,
+         )
+         self._active = runtime
+         if old_runtime is not None:
+@@ -391,17 +399,17 @@
+             self._cancel_runtime(old_runtime)
+         await self._emit(
+             runtime,
+-            State(type="state", turn_id=turn_id, state="listening"),
++            State(
++                type="state", turn_id=turn_id,
++                state="thinking" if game_event is not None else "listening",
++            ),
+         )
+ 
+     async def start_game_event(self, turn_id: str, context: dict[str, JsonValue], event: str) -> None:
+         # Validate even for non-WebSocket callers, before interrupting another turn.
+-        from api.services.game_companion.protocol import GameEvent
+         GameEvent(type="game_event", turn_id=turn_id, context=context, event=event)
+-        await self.start_turn(turn_id, context)
++        await self._start_turn(turn_id, context, game_event=event)
+         runtime = self._require_active(turn_id)
+-        runtime.game_event = event
+-        runtime.input_closed = True
+         runtime.task = asyncio.create_task(self._run_turn(runtime), name=f"game-companion-event-{turn_id}")
+         self._retain_turn_task(turn_id, runtime.task)
+         self._track_background_task(runtime.task)
+--- a/api/routes/game_companion.py
++++ b/api/routes/game_companion.py
+@@ -132,6 +132,8 @@
+                     await session.append_audio(order.active_turn_id, frame)
+                     continue
+ 
++                if isinstance(frame, dict) and isinstance(frame.get("turn_id"), str):
++                    error_turn_id = frame["turn_id"].strip()
+                 message = parse_client_message(frame)
+                 if order.should_discard_retired_result(message):
+                     continue
+@@ -147,7 +149,7 @@
+                             protocol_version=PROTOCOL_VERSION,
+                             session_id=str(uuid.uuid4()),
+                             companion="Aster",
+-                            capabilities=["game_events_v1"],
++                            capabilities=["game_events_v1", "aster_wake_v1"],
+                             audio=AudioFormat(
+                                 sample_rate=16000,
+                                 channels=1,
+--- a/api/tests/test_game_companion_route.py
++++ b/api/tests/test_game_companion_route.py
+@@ -16,6 +16,10 @@
+     Caption,
+     State,
+ )
++from test_game_companion_session import FakeLLM, FakeSTT, FakeTTS, fake_providers
++from api.services.game_companion.providers import LLMResult, PCMChunk
++from api.services.game_companion.session import CompanionSession
++import asyncio
+ 
+ HELLO = {
+     "type": "hello",
+@@ -135,6 +139,91 @@
+     return websocket, connection, acknowledgement
+ 
+ 
++@pytest.mark.parametrize("event,context", [
++    ("aster_first_wake", {}),
++    ("aster_first_wake", {"companion_wake": {"activated": 1, "phase": "awake", "first_activation_this_session": True}}),
++    ("invented_event", {}),
++    ("station_assay_complete", {}),
++])
++def test_invalid_event_does_not_close_or_interrupt_active_speech(monkeypatch, event, context):
++    sessions = []
++    holders = []
++
++    class HeldTTS(FakeTTS):
++        async def synthesize(self, text):
++            yield PCMChunk(audio=b"\x01\x00", sample_rate=24000)
++            hold = asyncio.Event()
++            holders.append(hold)
++            await hold.wait()
++
++    def factory(emit):
++        session = CompanionSession(providers=fake_providers(tts=HeldTTS()), emit=emit)
++        sessions.append(session)
++        return session
++
++    monkeypatch.setattr(game_companion, "DOGRAH_GAME_COMPANION_ENABLED", True)
++    monkeypatch.setattr(game_companion, "DOGRAH_GAME_COMPANION_TOKEN", COMPANION_TOKEN)
++    monkeypatch.setattr(game_companion, "create_companion_session", factory)
++    app = FastAPI()
++    app.include_router(game_companion.router)
++    with TestClient(app) as client:
++        manager, connection, ack = connect_and_hello(client)
++        try:
++            assert set(ack["capabilities"]) == {"game_events_v1", "aster_wake_v1"}
++            connection.send_json({"type": "turn_start", "turn_id": "speaking", "context": {}})
++            connection.send_bytes(b"\x00\x00")
++            connection.send_json({"type": "turn_end", "turn_id": "speaking"})
++            while connection.receive_json()["type"] != "audio_start":
++                pass
++            assert connection.receive_bytes() == b"\x01\x00"
++            connection.send_json({"type": "game_event", "turn_id": "bad-event", "event": event, "context": context})
++            error = connection.receive_json()
++            assert error["type"] == "error" and error["recoverable"] is True
++            assert error["turn_id"] == "bad-event"
++            assert sessions[0].active_turn_id == "speaking"
++            assert not sessions[0].cancelled_turn_ids
++            connection.send_json({"type": "interrupt", "turn_id": "speaking"})
++            connection.send_json({"type": "turn_start", "turn_id": "reply", "context": {}})
++            assert connection.receive_json()["state"] == "listening"
++        finally:
++            manager.__exit__(None, None, None)
++
++
++def test_authenticated_wake_event_streams_without_microphone_then_accepts_player_reply(monkeypatch):
++    stt, llm, tts = FakeSTT(), FakeLLM([
++        LLMResult(text="Hello. I'm Aster."), LLMResult(text="Hello to you too."),
++    ]), FakeTTS()
++    monkeypatch.setattr(game_companion, "DOGRAH_GAME_COMPANION_ENABLED", True)
++    monkeypatch.setattr(game_companion, "DOGRAH_GAME_COMPANION_TOKEN", COMPANION_TOKEN)
++    monkeypatch.setattr(game_companion, "create_companion_session", lambda emit: CompanionSession(
++        providers=fake_providers(stt=stt, llm=llm, tts=tts), emit=emit,
++    ))
++    app = FastAPI()
++    app.include_router(game_companion.router)
++    with TestClient(app) as client:
++        manager, connection, ack = connect_and_hello(client)
++        try:
++            assert "aster_wake_v1" in ack["capabilities"]
++            connection.send_json({"type": "game_event", "turn_id": "wake", "event": "aster_first_wake", "context": {
++                "companion_wake": {"activated": True, "phase": "awake", "first_activation_this_session": True},
++            }})
++            captions = []
++            while True:
++                frame = connection.receive_json()
++                if frame["type"] == "caption":
++                    captions.append(frame)
++                if frame["type"] == "audio_start":
++                    assert connection.receive_bytes() == b"\x01\x00\x02\x00"
++                if frame.get("state") == "idle":
++                    break
++            assert [(c["speaker"], c["text"]) for c in captions] == [("assistant", "Hello. I'm Aster.")]
++            assert not stt.calls and llm.calls[0]["tools"] == []
++            connection.send_json({"type": "turn_start", "turn_id": "reply", "context": {}})
++            assert connection.receive_json()["state"] == "listening"
++        finally:
++            manager.__exit__(None, None, None)
++
++
+ def test_route_is_disabled_without_explicit_local_opt_in(monkeypatch):
+     monkeypatch.setattr(game_companion, "DOGRAH_GAME_COMPANION_ENABLED", False)
+     monkeypatch.setattr(game_companion, "DOGRAH_GAME_COMPANION_TOKEN", "")
+--- /dev/null
++++ b/api/tests/test_game_companion_wake.py
+@@ -0,0 +1,220 @@
++"""Wake contract and interruption regressions, using only fake providers."""
++
++import asyncio
++import json
++
++import pytest
++from pydantic import ValidationError
++
++from test_game_companion_session import FakeLLM, FakeSTT, FakeTTS, fake_providers
++from api.services.game_companion.persona import build_turn_messages
++from api.services.game_companion.protocol import (
++    AnnotationProposal, AudioEnd, AudioStart, Caption, ClientMessageOrder,
++    ErrorMessage, MemoryQuery, ProtocolError, State, ToolCall, parse_client_message,
++)
++from api.services.game_companion.providers import LLMResult, LLMToolCall, PCMChunk
++from api.services.game_companion.session import CompanionSession
++
++WAKE_CONTEXT = {"companion_wake": {
++    "activated": True, "phase": "awake", "first_activation_this_session": True,
++}}
++INTRO = "Oh—hello. I'm Aster. I can help you make sense of this place. Hold the talk key when you want to speak."
++INVALID = [
++    {}, {"companion_wake": "awake"}, {"companion_wake": []},
++    *({"companion_wake": {**WAKE_CONTEXT["companion_wake"], key: value}}
++      for key, value in [
++          ("activated", False), ("activated", 1), ("activated", "true"),
++          ("phase", "waking"), ("phase", None),
++          ("first_activation_this_session", False),
++          ("first_activation_this_session", 1),
++          ("first_activation_this_session", "true"),
++      ]),
++    *({"companion_wake": {key: value for key, value in WAKE_CONTEXT["companion_wake"].items() if key != missing}}
++      for missing in WAKE_CONTEXT["companion_wake"]),
++]
++
++
++def wake_message(context=WAKE_CONTEXT, event="aster_first_wake"):
++    return parse_client_message({
++        "type": "game_event", "turn_id": "wake", "event": event, "context": context,
++    })
++
++
++@pytest.mark.parametrize("context", INVALID)
++def test_wake_requires_actual_booleans_and_fresh_completed_activation(context):
++    with pytest.raises(ProtocolError):
++        wake_message(context)
++
++
++def test_wake_needs_no_assay_and_has_closed_protocol_input():
++    order = ClientMessageOrder()
++    order.accept(parse_client_message({
++        "type": "hello", "protocol_version": 1, "client": "salvage",
++        "save_id": "fresh-review", "capabilities": ["captions"],
++    }))
++    order.accept(wake_message())
++    assert not order.input_open
++    with pytest.raises(ProtocolError):
++        order.accept_binary(2)
++    with pytest.raises(ProtocolError):
++        order.accept(parse_client_message({"type": "turn_end", "turn_id": "wake"}))
++    assert order.accept(parse_client_message({
++        "type": "turn_start", "turn_id": "reply", "context": {},
++    })) == "wake"
++    order.accept_binary(2)
++
++
++@pytest.mark.asyncio
++async def test_wake_uses_normal_caption_and_pcm_path_without_stt_or_tools():
++    stt, llm, tts = FakeSTT(), FakeLLM([LLMResult(text=INTRO)]), FakeTTS()
++    session = CompanionSession(providers=fake_providers(stt=stt, llm=llm, tts=tts))
++    try:
++        await session.start_game_event("wake", WAKE_CONTEXT, "aster_first_wake")
++        with pytest.raises(ProtocolError):
++            await session.append_audio("wake", b"\x00\x00")
++        with pytest.raises(ProtocolError):
++            await session.end_turn("wake")
++        await session.wait_for_turn("wake")
++        assert stt.calls == []
++        assert len(llm.calls) == 1 and llm.calls[0]["tools"] == []
++        prompt = llm.calls[0]["messages"][-1]["content"]
++        assert "Game event: aster_first_wake. No player has spoken." in prompt
++        assert INTRO in prompt and "Player speech:" not in prompt
++        assert "Do not invent prior conversation" in prompt
++        assert tts.calls == [INTRO]
++        captions = [e for e in session.outbound_events if isinstance(e, Caption)]
++        assert [(e.speaker, e.text) for e in captions] == [("assistant", INTRO)]
++        assert any(isinstance(e, AudioStart) for e in session.outbound_events)
++        assert b"\x01\x00\x02\x00" in session.outbound_events
++        assert any(isinstance(e, AudioEnd) for e in session.outbound_events)
++        assert not any(isinstance(e, (ToolCall, MemoryQuery, AnnotationProposal, ErrorMessage)) for e in session.outbound_events)
++        assert not any(isinstance(e, State) and e.state == "listening" for e in session.outbound_events)
++        # First ordinary reply still runs STT, emits a player caption and offers tools.
++        llm.results.append(LLMResult(text="Hello to you too."))
++        await session.start_turn("reply", {})
++        await session.append_audio("reply", b"\x00\x00")
++        await session.end_turn("reply")
++        await session.wait_for_turn("reply")
++        assert len(stt.calls) == 1 and llm.calls[-1]["tools"]
++        assert any(isinstance(e, Caption) and e.turn_id == "reply" and e.speaker == "player" for e in session.outbound_events)
++    finally:
++        await session.close()
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("event,context", [
++    *(("aster_first_wake", context) for context in INVALID),
++    ("unknown", WAKE_CONTEXT), ("station_assay_complete", WAKE_CONTEXT),
++])
++async def test_invalid_event_cannot_interrupt_active_speech(event, context):
++    started, release = asyncio.Event(), asyncio.Event()
++
++    class SpeakingTTS(FakeTTS):
++        async def synthesize(self, text):
++            yield PCMChunk(audio=b"\x01\x00", sample_rate=24000)
++            started.set()
++            await release.wait()
++            yield PCMChunk(audio=b"\x02\x00", sample_rate=24000)
++
++    session = CompanionSession(providers=fake_providers(tts=SpeakingTTS()))
++    try:
++        await session.start_turn("speaking", {})
++        await session.append_audio("speaking", b"\x00\x00")
++        await session.end_turn("speaking")
++        await asyncio.wait_for(started.wait(), 1)
++        before = list(session.outbound_events)
++        with pytest.raises(ValidationError):
++            await session.start_game_event("invalid", context, event)
++        assert session.active_turn_id == "speaking"
++        assert session.outbound_events == before and not session.cancelled_turn_ids
++        release.set()
++        await session.wait_for_turn("speaking")
++        assert b"\x02\x00" in session.outbound_events
++    finally:
++        release.set()
++        await session.close()
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("provider", ["llm", "tts"])
++async def test_late_uncancellable_wake_output_cannot_leak_into_player_reply(provider):
++    started, cancelled, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
++
++    async def hold():
++        started.set()
++        try:
++            await release.wait()
++        except asyncio.CancelledError:
++            cancelled.set()
++            await release.wait()
++
++    class LateLLM(FakeLLM):
++        async def respond(self, messages, tools):
++            if "Game event:" in messages[-1]["content"]:
++                await hold()
++                return LLMResult(text="STALE WAKE CAPTION")
++            return LLMResult(text="Current reply")
++
++    class LateTTS(FakeTTS):
++        async def synthesize(self, text):
++            if text == INTRO:
++                await hold()
++                yield PCMChunk(audio=b"\x55\x00", sample_rate=24000)
++            else:
++                yield PCMChunk(audio=b"\x33\x00", sample_rate=24000)
++
++    llm = LateLLM() if provider == "llm" else FakeLLM([LLMResult(text=INTRO), LLMResult(text="Current reply")])
++    tts = LateTTS() if provider == "tts" else FakeTTS()
++    session = CompanionSession(providers=fake_providers(llm=llm, tts=tts))
++    try:
++        await session.start_game_event("wake", WAKE_CONTEXT, "aster_first_wake")
++        await asyncio.wait_for(started.wait(), 1)
++        await session.start_turn("reply", {})
++        await asyncio.wait_for(cancelled.wait(), 1)
++        cutoff = len(session.outbound_events)
++        await session.append_audio("reply", b"\x00\x00")
++        await session.end_turn("reply")
++        release.set()
++        await session.wait_for_turn("wake")
++        await session.wait_for_turn("reply")
++        events = session.outbound_events[cutoff:]
++        assert not any(getattr(e, "turn_id", None) == "wake" for e in events)
++        assert b"\x55\x00" not in events
++        assert any(isinstance(e, Caption) and e.text == "Current reply" for e in events)
++        assert session.active_turn_id == "reply"
++        assert "wake" in session.cancelled_turn_ids
++    finally:
++        release.set()
++        await session.close()
++
++
++@pytest.mark.asyncio
++async def test_wake_rejects_provider_tool_calls_without_dispatching_actions():
++    llm = FakeLLM([LLMResult(tool_calls=(LLMToolCall(
++        call_id="forbidden", name="request_assisted_landing", arguments={},
++    ),))])
++    tts = FakeTTS()
++    session = CompanionSession(providers=fake_providers(llm=llm, tts=tts))
++    try:
++        await session.start_game_event("wake", WAKE_CONTEXT, "aster_first_wake")
++        await session.wait_for_turn("wake")
++        assert not tts.calls
++        assert not any(isinstance(e, (ToolCall, MemoryQuery, AnnotationProposal, Caption)) for e in session.outbound_events)
++        assert any(isinstance(e, ErrorMessage) and e.code == "provider_failure" for e in session.outbound_events)
++    finally:
++        await session.close()
++
++
++@pytest.mark.parametrize("key,event", [
++    ("recent_aster_opening", "aster_first_wake"),
++    ("recent_station_opening", "station_assay_complete"),
++])
++def test_returned_opening_caption_is_reported_dialogue_not_world_evidence(key, event):
++    opening = {"event": event, "caption_received": "Actual returned caption",
++               "delivery": "Audio may have been interrupted or muted."}
++    messages = build_turn_messages("Hello", {"companion_wake": WAKE_CONTEXT["companion_wake"], key: opening})
++    authoritative, dialogue = messages[-1]["content"].split("\n\nReported dialogue", 1)
++    assert key not in authoritative and "companion_wake" in authoritative
++    assert json.dumps(opening["caption_received"]) in dialogue and event in dialogue
++    assert "not authoritative world evidence" in messages[0]["content"]
++    assert "proof of what the player heard" in messages[0]["content"]

@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "kit": {
+    "version": "0.1.6",
+    "source_digest": "2dc451113fd44e3286c89d29d36180389f4741bceee8e9799b1e85dde6a1240e"
+  },
+  "host": "Linux",
+  "credential_files": [],
+  "capabilities": {
+    "blender": {
+      "status": "needs_setup",
+      "installed": false,
+      "next_step": "Install Blender 5.0.x; set executables.blender to its full executable path; run the fixture round trip.",
+      "operations": "unverified"
+    },
+    "godot": {
+      "status": "needs_setup",
+      "installed": false,
+      "next_step": "Install Godot 4.5.1 standard; set executables.godot; run import and headless smoke, then native review.",
+      "operations": "unverified"
+    },
+    "gaea": {
+      "status": "needs_setup",
+      "installed": false,
+      "next_step": "Install an entitled Gaea edition; save a working graph and verify its installed-version build command in the UI.",
+      "operations": "unverified"
+    },
+    "ffmpeg": {
+      "status": "ready",
+      "installed": true,
+      "next_step": "Optional: install FFmpeg and set executables.ffmpeg for capture/transcode.",
+      "operations": "unverified",
+      "version": "6.1.1"
+    },
+    "ffprobe": {
+      "status": "ready",
+      "installed": true,
+      "next_step": "Optional: install FFprobe and set executables.ffprobe for encoded-media measurements.",
+      "operations": "unverified",
+      "version": "6.1.1"
+    },
+    "meshy": {
+      "status": "needs_setup",
+      "credential_present": false,
+      "credential_source": "none",
+      "network_probed": false,
+      "next_step": "Optional: set MESHY_API_KEY (or the configured variable), confirm a work-card budget and current account rates before submit."
+    },
+    "elevenlabs": {
+      "status": "needs_setup",
+      "credential_present": false,
+      "credential_source": "none",
+      "network_probed": false,
+      "next_step": "Optional: set ELEVENLABS_API_KEY (or the configured variable), confirm rights, entitlement and work-card budget."
+    },
+    "fish": {
+      "status": "needs_setup",
+      "credential_present": false,
+      "credential_source": "none",
+      "network_probed": false,
+      "next_step": "Optional: set FISH_AUDIO_API_KEY (or configured variable); authorize voice rights, explicit model and nonzero budget before file speech."
+    },
+    "computer_use": {
+      "status": "unverified",
+      "next_step": "The active host must expose computer-use tools and inspect the native app; follow docs/windows-smoke.md.",
+      "reason": "A Python helper cannot detect the active agent's tools or visual access"
+    },
+    "review_recording": {
+      "status": "unverified",
+      "operations": "unverified",
+      "network_probed": false,
+      "next_step": "Configure an explicit file or currently permitted Windows ddagrab profile; record and finalize an original bounded run."
+    },
+    "review_video_analysis": {
+      "status": "needs_setup",
+      "operations": "unverified",
+      "network_probed": false,
+      "next_step": "Set credentials.gemini environment variable, approve exact media/model and a bounded budget; evaluate original failures and clean controls.",
+      "credential_present": false,
+      "credential_source": "none"
+    },
+    "review_ordinary_input": {
+      "status": "unverified",
+      "operations": "unverified",
+      "network_probed": false,
+      "next_step": "Demonstrate held movement and relative mouse through the active permitted host interface or a named human driver."
+    },
+    "review_listening": {
+      "status": "unverified",
+      "operations": "unverified",
+      "network_probed": false,
+      "next_step": "Record actual output source and named listener with reviewed intervals; PCM presence alone is insufficient."
+    },
+    "blender_mcp": {
+      "status": "needs_setup",
+      "configured": false,
+      "version_verified": false,
+      "interactive_status": "unverified",
+      "next_step": "Optional Windows lifecycle: configure every blender_mcp host field, then run skills/studio-blender/references/windows-lifecycle-qualification.md.",
+      "reason": "No explicit blender_mcp host block was supplied"
+    }
+  }
+}

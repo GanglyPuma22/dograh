@@ -202,6 +202,13 @@ def build_turn_messages(
                 "supercruise",
             }
         }
+    opening_keys = {"recent_aster_opening", "recent_station_opening"}
+    reported_openings = {
+        key: value for key, value in model_context.items() if key in opening_keys
+    }
+    model_context = {
+        key: value for key, value in model_context.items() if key not in opening_keys
+    }
     context_json = json.dumps(
         model_context,
         ensure_ascii=False,
@@ -209,13 +216,24 @@ def build_turn_messages(
         sort_keys=True,
     )
     system_prompt = _system_prompt(capabilities, context)
+    reported_dialogue = ""
+    if reported_openings:
+        system_prompt += (
+            "\nReported opening captions are dialogue context for this reply, not "
+            "authoritative world evidence or proof of what the player heard. "
+            "Audio may have been interrupted or muted. Do not invent prior conversation.\n"
+        )
+        reported_dialogue = (
+            "\n\nReported dialogue (not world evidence or proof of heard audio):\n"
+            + json.dumps(reported_openings, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        )
     return [
         {"role": "system", "content": system_prompt},
         {
             "role": "user",
             "content": (
                 "Supplied game context (authoritative JSON):\n"
-                f"{context_json}\n\nPlayer speech:\n{transcript}"
+                f"{context_json}{reported_dialogue}\n\nPlayer speech:\n{transcript}"
             ),
         },
     ]
@@ -235,14 +253,26 @@ def build_analysis_messages(records: list[dict[str, JsonValue]]) -> list[dict]:
 
 
 def build_game_event_messages(event: str, context: dict[str, JsonValue], capabilities=frozenset()) -> list[dict]:
-    if event != "station_assay_complete":
+    if event not in {"station_assay_complete", "aster_first_wake"}:
         raise ValueError("unsupported game event")
     messages = build_turn_messages("", context, capabilities)
     # Keep the existing visibility filtering and persona. Explicitly distinguish
     # game observation from player speech; there was no microphone turn.
     messages[-1]["content"] = messages[-1]["content"].replace(
-        "\n\nPlayer speech:\n", "\n\nGame event: station_assay_complete. No player has spoken.\n"
-    ) + (
+        "\n\nPlayer speech:\n", f"\n\nGame event: {event}. No player has spoken.\n"
+    )
+    if event == "aster_first_wake":
+        messages[-1]["content"] += (
+            "The player has just woken Aster for the first meeting. Give only this brief "
+            "introduction, naturally spoken: Oh—hello. I'm Aster. I can help you make sense "
+            "of this place. Hold the talk key when you want to speak. "
+            "Do not name a particular key; the game displays its current binding. "
+            "No player question needs answering. Do not invent prior conversation, "
+            "an assay result, bench mystery or expedition knowledge. Do not add a tutorial "
+            "monologue, perform actions or claim gameplay progress or saved analysis."
+        )
+        return messages
+    messages[-1]["content"] += (
         "The station assay just completed and the player now owns the pocket receiver. "
         "Initiate one brief, natural conversation as Aster: acknowledge that result and ask "
         "one question inviting the player to interpret it together. Maximum two short sentences. "

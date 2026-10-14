@@ -1,0 +1,64 @@
+{
+  "protocol_version": 1,
+  "tools": [
+    {
+      "name": "request_assisted_landing",
+      "arguments": {}
+    },
+    {
+      "name": "request_supercruise",
+      "arguments": {}
+    },
+    {
+      "name": "cancel_supercruise",
+      "arguments": {}
+    }
+  ],
+  "accepted_result": {
+    "accepted": true,
+    "state": "assisted_landing_active",
+    "code": "landing_started",
+    "message": "Assisted landing started."
+  },
+  "denied_result": {
+    "accepted": false,
+    "state": "manual_flight",
+    "code": "no_target",
+    "message": "Select a destination before engaging Supercruise."
+  },
+  "landing": {
+    "valid": true,
+    "overall_state": "caution",
+    "projected_site_valid": true,
+    "clearance_m": 84.2,
+    "descent_rate_mps": 3.1,
+    "lateral_drift_mps": 1.4,
+    "tilt_degrees": 4.2,
+    "slope_degrees": 6.8,
+    "channels": {
+      "descent": "amber",
+      "drift": "green",
+      "tilt": "green",
+      "slope": "green"
+    },
+    "blocking_reasons": [],
+    "assisted_landing_available": true,
+    "recommended_cue": "reduce_descent"
+  },
+  "supercruise": {
+    "valid": true,
+    "phase": "cruising",
+    "target_body_id": "planet_01_moon",
+    "target_display_name": "Starting Moon",
+    "managed_authority": true,
+    "blocker_code": "",
+    "distance_remaining_m": 834000.0,
+    "closure_rate_mps": 12100.0,
+    "active_time_scale": 64.0,
+    "effective_travel_rate_mps": 774400.0,
+    "effective_eta_seconds": 1.1,
+    "stopping_distance_m": 346000.0,
+    "automatic_braking": false,
+    "manual_override_available": true
+  }
+}

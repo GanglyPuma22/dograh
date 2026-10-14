@@ -1,0 +1,4 @@
+# Add last to the existing compose files only in an explicit service-change window.
+services:
+  api:
+    image: dograh-api:aster-first-wake-candidate-20260929

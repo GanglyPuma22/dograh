@@ -1,0 +1,13 @@
+{
+  "image": "dograh-api:aster-first-wake-candidate-20260929",
+  "image_id": "sha256:258e614f718fe94caf811628a89fd8e37f5bea286b0a2233c15ee98151463bb1",
+  "base_id": "sha256:b1d20b50f092ac3ab8fd29af4a2c5c2a2fffbb3ac3a2d2bfc80370892fd2e5bf",
+  "copied_files": [
+    "backend/api/services/game_companion/protocol.py",
+    "backend/api/services/game_companion/persona.py",
+    "backend/api/services/game_companion/session.py",
+    "backend/api/routes/game_companion.py"
+  ],
+  "context": "/home/mmounier/src/aster-first-wake-20260929/artifacts/deployment-20260930T062520Z/build-context",
+  "completed_at": "2026-09-30T06:25:31.052396+00:00"
+}

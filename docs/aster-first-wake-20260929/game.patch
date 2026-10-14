@@ -1,0 +1,518 @@
+--- a/game/scripts/companion/companion_client.gd
++++ b/game/scripts/companion/companion_client.gd
+@@ -64,9 +64,11 @@
+ var _connection_state: ConnectionState = ConnectionState.OFFLINE
+ var _input_open: bool = false
+ var _game_events_supported: bool = false
+-var _station_event_turn_id := ""
+-var _station_event_caption := ""
+-var _station_event_caption_msec := -1
++var _wake_events_supported: bool = false
++var _game_event_kind: StringName = &""
++var _game_event_turn_id := ""
++var _game_event_caption := ""
++var _game_event_caption_msec := -1
+ var _input_audio_bytes: int = 0
+ var _output_audio_bytes: int = 0
+ var _reconnect_attempt: int = 0
+@@ -115,9 +117,10 @@
+ 	configured_url: String = DEFAULT_URL,
+ 	configured_authorization_token: String = "",
+ ) -> void:
+-	_station_event_turn_id = ""
+-	_station_event_caption = ""
+-	_station_event_caption_msec = -1
++	_game_event_turn_id = ""
++	_game_event_kind = &""
++	_game_event_caption = ""
++	_game_event_caption_msec = -1
+ 	save_id = configured_save_id.strip_edges()
+ 	_apply_save_id_override()
+ 	endpoint = configured_url.strip_edges()
+@@ -243,6 +246,7 @@
+ 	if not CompanionSaveContext.is_valid_save_id(save_id):
+ 		return ERR_INVALID_PARAMETER
+ 	_game_events_supported = false
++	_wake_events_supported = false
+ 	_connection_epoch += 1
+ 	_seen_tool_call_ids.clear()
+ 	_seen_memory_query_ids.clear()
+@@ -291,23 +295,43 @@
+ 	return turn_id if start_turn_with_id(turn_id, context) else ""
+ 
+ 
+-func can_start_game_event() -> bool:
++func can_start_game_event(event: StringName = &"station_assay_complete") -> bool:
++	var supported := false
++	match event:
++		&"station_assay_complete":
++			supported = _game_events_supported
++		&"aster_first_wake":
++			# A station-only backend must never receive this new event.
++			supported = _game_events_supported and _wake_events_supported
+ 	return (
+ 		_connection_state == ConnectionState.READY
+-		and _game_events_supported
+-		and not _input_open
+-		and _protocol.state_label() == &"idle"
++		and supported and not _input_open and _protocol.state_label() == &"idle"
+ 	)
+ 
+ 
+ func start_game_event(event: StringName, context: Dictionary) -> String:
+-	if not can_start_game_event() or event != &"station_assay_complete":
++	if not can_start_game_event(event):
+ 		return ""
+-	var discovery: Variant = context.get("discovery", {})
+-	if not discovery is Dictionary:
+-		return ""
+-	if discovery.get("station_sample_state", "") != "receiver_ready" or discovery.get("receiver_owned") != true:
+-		return ""
++	match event:
++		&"station_assay_complete":
++			var discovery: Variant = context.get("discovery", {})
++			if not discovery is Dictionary:
++				return ""
++			if discovery.get("station_sample_state", "") != "receiver_ready" or discovery.get("receiver_owned") != true:
++				return ""
++		&"aster_first_wake":
++			var wake: Variant = context.get("companion_wake", {})
++			if not wake is Dictionary:
++				return ""
++			if (
++				typeof(wake.get("activated")) != TYPE_BOOL or wake.get("activated") != true
++				or wake.get("phase") != "awake"
++				or typeof(wake.get("first_activation_this_session")) != TYPE_BOOL
++				or wake.get("first_activation_this_session") != true
++			):
++				return ""
++		_:
++			return ""
+ 	var turn_id := _new_turn_id()
+ 	return turn_id if _start_turn_with_id(turn_id, context, event) else ""
+ 
+@@ -355,29 +379,32 @@
+ 		"turn_id": normalized_turn_id,
+ 		"context": context.duplicate(true),
+ 	}
+-	if event.is_empty() and not _station_event_caption.is_empty() and Time.get_ticks_msec() - _station_event_caption_msec <= 120000:
+-		payload.context["recent_station_opening"] = {
+-			"caption_received": _station_event_caption,
++	if event.is_empty() and not _game_event_caption.is_empty() and Time.get_ticks_msec() - _game_event_caption_msec <= 120000:
++		var opening_key := "recent_aster_opening" if _game_event_kind == &"aster_first_wake" else "recent_station_opening"
++		payload.context[opening_key] = {
++			"event": String(_game_event_kind),
++			"caption_received": _game_event_caption,
+ 			"delivery": "Reported dialogue, not a new game fact. Final caption received by the game. Audio may have been interrupted or muted; do not assume the player heard the entire utterance.",
+ 		}
+ 		if not _context_is_bounded(payload.context):
+-			payload.context.erase("recent_station_opening")
++			payload.context.erase(opening_key)
+ 	if not event.is_empty():
+ 		payload["type"] = "game_event"
+ 		payload["event"] = String(event)
+ 	if _send_control(payload) != OK:
+ 		return false
+ 	if not event.is_empty():
+-		_station_event_turn_id = normalized_turn_id
+-		_station_event_caption = ""
+-		_station_event_caption_msec = -1
++		_game_event_turn_id = normalized_turn_id
++		_game_event_kind = event
++		_game_event_caption = ""
++		_game_event_caption_msec = -1
+ 	if not _protocol.begin_turn(normalized_turn_id):
+ 		return false
+ 	if event.is_empty():
+ 		# A received opening is context for the first reply, not a refrain for
+ 		# every conversation in the next two minutes. Preserve it on send failure.
+-		_station_event_caption = ""
+-		_station_event_caption_msec = -1
++		_game_event_caption = ""
++		_game_event_caption_msec = -1
+ 	_debug_log.record_turn_start(authorization_scope(), payload.context)
+ 	_seen_memory_query_ids.clear()
+ 	_seen_annotation_proposal_ids.clear()
+@@ -655,6 +682,7 @@
+ 		&"hello_ack":
+ 			var capabilities: Variant = message.get("capabilities", [])
+ 			_game_events_supported = capabilities is Array and "game_events_v1" in capabilities
++			_wake_events_supported = capabilities is Array and "aster_wake_v1" in capabilities
+ 			if not _protocol_rotation_backoff_active:
+ 				_reconnect_attempt = 0
+ 			_next_reconnect_msec = -1
+@@ -669,9 +697,9 @@
+ 				_reconnect_attempt = 0
+ 				_reconnect_delay_msec = 0
+ 		&"caption":
+-			if bool(message.final) and String(message.speaker) == "assistant" and String(message.turn_id) == _station_event_turn_id:
+-				_station_event_caption = String(message.text).left(1000)
+-				_station_event_caption_msec = Time.get_ticks_msec()
++			if bool(message.final) and String(message.speaker) == "assistant" and String(message.turn_id) == _game_event_turn_id:
++				_game_event_caption = String(message.text).left(1000)
++				_game_event_caption_msec = Time.get_ticks_msec()
+ 			if bool(message.final):
+ 				_debug_log.record_caption(
+ 					authorization_scope(), String(message.speaker), String(message.text),
+--- a/game/scripts/companion/lilt/lilt_encounter.gd
++++ b/game/scripts/companion/lilt/lilt_encounter.gd
+@@ -7,6 +7,7 @@
+ const HOVER_LIFT: float = 1.15
+ const WAKE_TARGET_HEIGHT: float = 0.10
+ const WAKE_HINT_SECONDS: float = 6.0
++const WAKE_VOICE_WAIT_SECONDS: float = 30.0
+ 
+ var state := LiltEncounterState.new()
+ var presentation: LiltPresentation
+@@ -41,6 +42,11 @@
+ var _conversation_velocity := Vector3.ZERO
+ var _conversation_chasing := false
+ var _wake_hint_remaining := 0.0
++## Same opt-in as the existing station event; an older backend stays text-only.
++var wake_voice_enabled := "--aster-station-events" in OS.get_cmdline_user_args()
++var _wake_voice_pending := false
++var _wake_voice_remaining := 0.0
++var _wake_voice_turn_id := ""
+ 
+ 
+ func _ready() -> void:
+@@ -131,8 +137,9 @@
+ 	var anchor_body: Transform3D = frame.get("anchor_body_transform", Transform3D.IDENTITY)
+ 	var body_pose: Transform3D = frame.get("actor_body_transform", anchor_body)
+ 	var current_body := StringName(frame.get("body_id", &""))
+-	if not camera_pose.is_finite() or not anchor_body.is_finite() or not body_pose.is_finite():
+-		visible = false
++	if not camera_pose.is_finite() or not anchor_body.is_finite() or not body_pose.is_finite():
++		visible = false
++		_cancel_wake_voice()
+ 		return
+ 	# Range and state decisions must use this tick's published scene frame.
+ 	# At home-body orbital speed even one old tick can be over six metres away.
+@@ -150,7 +157,9 @@
+ 		or not _playback_turn.is_empty()
+ 		or _voice_status in [&"listening", &"thinking", &"speaking"]
+ 	)
+-	state.advance(delta, conversational, capture_active or not _playback_turn.is_empty())
++	# Our first greeting must not dismiss its independent text fallback.
++	var interrupt_intro := capture_active or (not _playback_turn.is_empty() and _playback_turn != _wake_voice_turn_id)
++	state.advance(delta, conversational, interrupt_intro)
+ 	if state.phase != was_phase:
+ 		_apply_phase()
+ 	if was_phase == &"awake":
+@@ -170,6 +179,7 @@
+ 		if visible:
+ 			global_transform = frame.dock_transform
+ 		_was_following = false
++	_advance_wake_voice(delta, conversational and visible, capture_active)
+ 	# Sight the upper body, above the certified terrain contact under dormant Aster.
+ 	interaction_target.position = Vector3.UP * WAKE_TARGET_HEIGHT
+ 	if presentation != null:
+@@ -281,6 +291,8 @@
+ 	if not state.activate():
+ 		return false
+ 	_wake_hint_remaining = WAKE_HINT_SECONDS
++	_wake_voice_pending = wake_voice_enabled
++	_wake_voice_remaining = WAKE_VOICE_WAIT_SECONDS if _wake_voice_pending else 0.0
+ 	_apply_phase()
+ 	_save_if_changed()
+ 	_request_connection()
+@@ -288,6 +300,7 @@
+ 
+ 
+ func reset_encounter() -> void:
++	_cancel_wake_voice()
+ 	state.reset()
+ 	_wake_hint_remaining = 0.0
+ 	_playback_turn = ""
+@@ -325,6 +338,63 @@
+ 	if state.phase != &"awake" or _wake_hint_remaining <= 0.0:
+ 		return
+ 	_wake_hint_remaining = maxf(_wake_hint_remaining - delta, 0.0)
++
++
++func _advance_wake_voice(delta: float, conversational: bool, capture_active: bool) -> void:
++	if not _wake_voice_pending and _wake_voice_turn_id.is_empty():
++		return
++	if capture_active or state.phase == &"dormant":
++		_cancel_wake_voice()
++		return
++	# Boarding, a modal, recovery or leaving range retires this invitation.
++	# Returning later must not trigger a delayed first meeting.
++	if not conversational:
++		_cancel_wake_voice()
++		return
++	if state.phase != &"awake":
++		return
++	if not _wake_voice_pending:
++		return
++	_wake_voice_remaining = maxf(0.0, _wake_voice_remaining - delta)
++	if _wake_voice_remaining <= 0.0:
++		_cancel_wake_voice()
++		return
++	if _client == null or not _client.can_start_game_event(&"aster_first_wake"):
++		return
++	if not _playback_turn.is_empty() or (_audio != null and _audio.has_buffered_playback()):
++		return
++	var context: Dictionary = {}
++	var world := get_parent()
++	if world != null and world.has_method("companion_context_snapshot"):
++		var snapshot: Variant = world.call("companion_context_snapshot")
++		if snapshot is Dictionary:
++			context = snapshot.duplicate(true)
++	context["companion_wake"] = {
++		"activated": state.activated,
++		"phase": String(state.phase),
++		"first_activation_this_session": true,
++	}
++	_wake_voice_turn_id = _client.start_game_event(&"aster_first_wake", context)
++	if not _wake_voice_turn_id.is_empty():
++		# Sending is not proof of heard audio. Text facts stay independently owned.
++		# Never retry an accepted greeting after reconnect or replay it on reload.
++		_wake_voice_pending = false
++		_wake_voice_remaining = 0.0
++
++
++func _cancel_wake_voice() -> void:
++	var turn_id := _wake_voice_turn_id
++	_wake_voice_pending = false
++	_wake_voice_remaining = 0.0
++	_wake_voice_turn_id = ""
++	if turn_id.is_empty():
++		return
++	# The world's capture listener may already have begun the player's reply.
++	# Cancel only our owned turn, never whichever turn happens to be current.
++	if is_instance_valid(_client) and _client.active_turn_id() == turn_id:
++		_client.interrupt_active_turn()
++	if is_instance_valid(_audio):
++		_audio.interrupt_playback(turn_id)
+ 
+ 
+ func _apply_phase() -> void:
+@@ -400,6 +470,7 @@
+ 
+ 
+ func _on_capture_started() -> void:
++	_cancel_wake_voice()
+ 	dismiss_wake_hint()
+ 	state.acknowledge_talk()
+ 	# The world may synchronously reject/abort an unavailable transport before
+@@ -422,9 +493,10 @@
+ 
+ 
+ func _on_playback_started(turn_id: String) -> void:
+-	if state.phase == &"awake":
+-		_playback_turn = turn_id
+-		state.interrupt_intro()
++	if state.phase == &"awake":
++		_playback_turn = turn_id
++		if turn_id != _wake_voice_turn_id:
++			state.interrupt_intro()
+ 
+ 
+ func _on_playback_stopped(turn_id: String) -> void:
+@@ -434,5 +506,6 @@
+ 
+ 
+ func _exit_tree() -> void:
++	_cancel_wake_voice()
+ 	if _sensor != null and is_instance_valid(_sensor) and interaction_target != null:
+ 		_sensor.unregister_candidate(interaction_target)
+--- a/game/tests/test_companion_client.gd
++++ b/game/tests/test_companion_client.gd
+@@ -45,6 +45,7 @@
+ 		return true
+ 	_run_save_override_cases(test)
+ 	_run_game_event_cases(test)
++	_run_wake_event_cases(test)
+ 	_run_handshake_and_turn_cases(test)
+ 	_run_bearer_header_cases(test)
+ 	_run_rejected_reconfiguration_cases(test)
+@@ -854,8 +855,8 @@
+ 	test.assert_equal(client.send_audio_frame(PackedByteArray([0, 0])), true, "normal player voice remains available")
+ 	test.assert_true(client.start_turn_with_id("second-reply", {}), "another reply starts normally")
+ 	test.assert_true(not client.control_frames.back().context.has("recent_station_opening"), "opening is consumed by the first reply")
+-	client._station_event_caption = "An expired opening"
+-	client._station_event_caption_msec = Time.get_ticks_msec() - 120001
++	client._game_event_caption = "An expired opening"
++	client._game_event_caption_msec = Time.get_ticks_msec() - 120001
+ 	test.assert_true(client.start_turn_with_id("later-reply", {}), "later reply starts normally")
+ 	test.assert_true(not client.control_frames.back().context.has("recent_station_opening"), "stale invitation caption expires")
+ 	client.disconnect_now()
+@@ -863,3 +864,51 @@
+ 	client.accept_server_text(JSON.stringify(_hello_ack()))
+ 	test.assert_equal(client.can_start_game_event(), false, "reconnecting resets event capability")
+ 	client.free()
++
++
++func _run_wake_event_cases(test: RefCounted) -> void:
++	var client := RecordingClient.new()
++	var context := {"companion_wake": {
++		"activated": true, "phase": "awake", "first_activation_this_session": true,
++	}}
++	client.begin_handshake()
++	var ack := _hello_ack()
++	ack["capabilities"] = ["game_events_v1"]
++	client.accept_server_text(JSON.stringify(ack))
++	test.assert_equal(client.start_game_event(&"aster_first_wake", context), "", "station-only service keeps wake text-only")
++	client.disconnect_now()
++	client.begin_handshake()
++	ack["capabilities"] = ["game_events_v1", "aster_wake_v1"]
++	client.accept_server_text(JSON.stringify(ack))
++	for invalid: Dictionary in [
++		{}, {"companion_wake": "not facts"},
++		{"companion_wake": {"activated": false, "phase": "awake", "first_activation_this_session": true}},
++		{"companion_wake": {"activated": true, "phase": "waking", "first_activation_this_session": true}},
++		{"companion_wake": {"activated": true, "phase": "awake", "first_activation_this_session": false}},
++		{"companion_wake": {"activated": 1, "phase": "awake", "first_activation_this_session": true}},
++		{"companion_wake": {"activated": true, "phase": "awake", "first_activation_this_session": "true"}},
++	]:
++		test.assert_equal(client.start_game_event(&"aster_first_wake", invalid), "", "unearned first wake rejected")
++	var turn_id := client.start_game_event(&"aster_first_wake", context)
++	test.assert_true(not turn_id.is_empty(), "fresh awake event starts")
++	test.assert_equal(client.control_frames.back().event, "aster_first_wake", "wake event is explicit")
++	test.assert_true(not client.control_frames.back().context.has("discovery"), "wake does not invent an assay")
++	test.assert_equal(client.send_audio_frame(PackedByteArray([0, 0])), false, "wake sends no microphone audio")
++	test.assert_equal(client.end_turn(), false, "wake needs no pretend microphone end")
++	test.assert_equal(client.start_game_event(&"aster_first_wake", context), "", "wake cannot interrupt an active turn")
++	client.accept_server_text(JSON.stringify({
++		"type": "caption", "turn_id": turn_id, "speaker": "assistant",
++		"text": "Hello. I'm Aster.", "final": true,
++	}))
++	test.assert_true(client.start_turn_with_id("wake-player-reply", {}), "player can interrupt the greeting")
++	var reply: Dictionary = client.control_frames.back().context
++	test.assert_equal(reply.recent_aster_opening.caption_received, "Hello. I'm Aster.", "reply gets actual wake caption")
++	test.assert_true(not reply.has("recent_station_opening"), "wake caption cannot masquerade as an assay")
++	test.assert_true("interrupted" in String(reply.recent_aster_opening.delivery), "caption is not proof of heard speech")
++	test.assert_true(client.start_turn_with_id("wake-second-reply", {}), "second player reply works")
++	test.assert_true(not client.control_frames.back().context.has("recent_aster_opening"), "wake caption consumed once")
++	client.disconnect_now()
++	client.begin_handshake()
++	client.accept_server_text(JSON.stringify(_hello_ack()))
++	test.assert_equal(client.can_start_game_event(&"aster_first_wake"), false, "wake capability resets on reconnect")
++	client.free()
+--- a/game/tests/test_lilt_encounter_integration.gd
++++ b/game/tests/test_lilt_encounter_integration.gd
+@@ -5,6 +5,7 @@
+ 	_run_capture_gate(test)
+ 	_run_overlay_state(test)
+ 	_run_binding_remap(test)
++	_run_wake_voice_lifecycle(test)
+ 	return true
+ 
+ 
+@@ -113,3 +114,105 @@
+ 	)
+ 	for event: InputEvent in original:
+ 		InputMap.action_add_event(CompanionAudioCapture.INPUT_ACTION, event)
++
++
++class WakeRecordingClient extends CompanionClient:
++	var frames: Array[Dictionary] = []
++
++	func _send_control(payload: Dictionary) -> Error:
++		frames.append(payload.duplicate(true))
++		return OK
++
++
++func _wake_fixture(capabilities: Array = ["game_events_v1", "aster_wake_v1"]) -> LiltEncounter:
++	var encounter := LiltEncounter.new()
++	var client := WakeRecordingClient.new()
++	client.auto_connect = false
++	client.begin_handshake()
++	client.accept_server_text(JSON.stringify({
++		"type": "hello_ack", "protocol_version": 1, "session_id": "wake-unit", "companion": "Aster",
++		"audio": {"format": "pcm_s16le", "sample_rate": 24000, "channels": 1},
++		"capabilities": capabilities,
++	}))
++	encounter._client = client
++	encounter._connection_requested = true
++	encounter.wake_voice_enabled = true
++	return encounter
++
++
++func _free_wake_fixture(encounter: LiltEncounter) -> void:
++	encounter._cancel_wake_voice()
++	encounter._client.free()
++	encounter._client = null
++	encounter.free()
++
++
++func _run_wake_voice_lifecycle(test: RefCounted) -> void:
++	var encounter := _wake_fixture()
++	test.assert_true(encounter.activate_lilt(), "fresh activation queues one greeting")
++	encounter._advance_wake_voice(0.1, true, false)
++	test.assert_equal(encounter._client.active_turn_id(), "", "waking animation precedes spoken introduction")
++	encounter.state.advance(LiltEncounterState.WAKE_SECONDS, true, false)
++	encounter._advance_wake_voice(0.1, true, false)
++	var first_turn := encounter._client.active_turn_id()
++	test.assert_true(not first_turn.is_empty(), "awake encounter requests the greeting")
++	test.assert_equal(encounter._client.send_audio_frame(PackedByteArray([0, 0])), false, "activation never opens microphone input")
++	test.assert_equal(encounter.state.intro_delivered, false, "queued speech is not delivered text or heard audio")
++	encounter.state.advance(0.1, true, false)
++	encounter._on_playback_started(first_turn)
++	test.assert_equal(encounter.state.intro_visible, true, "own greeting playback preserves text fallback")
++	test.assert_equal(encounter.state.intro_delivered, false, "playback does not mark text delivered")
++	encounter._on_playback_stopped(first_turn)
++	encounter._client.interrupt_active_turn()
++	encounter._advance_wake_voice(0.1, true, false)
++	test.assert_equal(encounter._client.active_turn_id(), "", "accepted greeting does not replay")
++	_free_wake_fixture(encounter)
++
++	encounter = _wake_fixture()
++	encounter.state.restore({"activated": true})
++	encounter._advance_wake_voice(0.1, true, false)
++	test.assert_equal(encounter._client.active_turn_id(), "", "restored awake save never queues first-wake speech")
++	_free_wake_fixture(encounter)
++
++	encounter = _wake_fixture(["game_events_v1"])
++	encounter.activate_lilt()
++	encounter.state.advance(LiltEncounterState.WAKE_SECONDS, true, false)
++	encounter._advance_wake_voice(0.1, true, false)
++	test.assert_equal(encounter._client.active_turn_id(), "", "old backend leaves introduction as text")
++	encounter._advance_wake_voice(LiltEncounter.WAKE_VOICE_WAIT_SECONDS, true, false)
++	test.assert_equal(encounter._wake_voice_pending, false, "offline invitation expires")
++	_free_wake_fixture(encounter)
++
++	for interruption: String in ["walk_away", "talk"]:
++		encounter = _wake_fixture()
++		encounter.activate_lilt()
++		encounter.state.advance(LiltEncounterState.WAKE_SECONDS, true, false)
++		encounter._advance_wake_voice(0.1, interruption != "walk_away", interruption == "talk")
++		encounter._advance_wake_voice(0.1, true, false)
++		test.assert_equal(encounter._client.active_turn_id(), "", "cancelled invitation stays cancelled: " + interruption)
++		_free_wake_fixture(encounter)
++
++	encounter = _wake_fixture()
++	encounter.activate_lilt()
++	encounter._advance_wake_voice(0.1, false, false)
++	encounter.state.advance(LiltEncounterState.WAKE_SECONDS, true, false)
++	encounter._advance_wake_voice(0.1, true, false)
++	test.assert_equal(encounter._client.active_turn_id(), "", "leaving during wake animation cancels invitation")
++	_free_wake_fixture(encounter)
++
++	encounter = _wake_fixture()
++	encounter.activate_lilt()
++	encounter.state.advance(LiltEncounterState.WAKE_SECONDS, true, false)
++	encounter._advance_wake_voice(0.1, true, false)
++	encounter._advance_wake_voice(0.1, false, false)
++	test.assert_equal(encounter._client.active_turn_id(), "", "leaving retires owned active greeting")
++	_free_wake_fixture(encounter)
++
++	encounter = _wake_fixture()
++	encounter.activate_lilt()
++	encounter.state.advance(LiltEncounterState.WAKE_SECONDS, true, false)
++	encounter._advance_wake_voice(0.1, true, false)
++	encounter._client.start_turn_with_id("player-priority", {})
++	encounter._on_capture_started()
++	test.assert_equal(encounter._client.active_turn_id(), "player-priority", "wake cancellation preserves newer player turn")
++	_free_wake_fixture(encounter)
+--- a/game/tests/aster_event_check.gd
++++ b/game/tests/aster_event_check.gd
+@@ -4,6 +4,7 @@
+ 	return PackedStringArray([
+ 		"test_companion_client.gd",
+ 		"test_companion_protocol.gd",
++		"test_lilt_encounter_integration.gd",
+ 		"test_station_signal_state.gd",
+ 		"test_station_signal_lifetime.gd",
+ 		"test_bench_assay.gd",

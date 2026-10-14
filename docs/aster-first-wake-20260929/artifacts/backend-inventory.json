@@ -1,0 +1,2390 @@
+[
+  {
+    "path": "api/.cursorignore",
+    "sha256": "d4f9749a375f93afaa81023e75c903171bc3d7e02e18520cb6dbd525d2241485"
+  },
+  {
+    "path": "api/.dockerignore",
+    "sha256": "f1caeef82cba695e287aed9cb6941f374dc1b95b1de9f0d9b1157fac68cde941"
+  },
+  {
+    "path": "api/.gitignore",
+    "sha256": "451dba9e1648f8cd842a7b962fcb4eb4e2de16467a57e9f2886a6eb4df5716bf"
+  },
+  {
+    "path": "api/AGENTS.md",
+    "sha256": "57790b8952abf6786fb255661fead7cb838334d34a2737148ffa57c08a540534"
+  },
+  {
+    "path": "api/CLAUDE.md",
+    "sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"
+  },
+  {
+    "path": "api/Dockerfile",
+    "sha256": "a6a8fee2e7e2d908cd4519d1846a9c2fd4221a045e22fb451240d955ab26b1ea"
+  },
+  {
+    "path": "api/Dockerfile.aster-event-test",
+    "sha256": "7f23e18ff14ef7b2e8b35116a47c376a891acc1fcc70a920bf6c7c7303af85bf"
+  },
+  {
+    "path": "api/__init__.py",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "api/alembic/env.py",
+    "sha256": "9c8a4ab24788586ad59db173f0aaf64ac6cccb73f3f1eb090c75afba1db245b4"
+  },
+  {
+    "path": "api/alembic/script.py.mako",
+    "sha256": "304a8bfb6a804e5493f5300e79882c70c9f5bb2e87512f4d16f0e097dddd323f"
+  },
+  {
+    "path": "api/alembic/versions/02ffd7f23d1d_add_index_in_workflow_run.py",
+    "sha256": "26132d76eeeb8b4a8531559b8f2fae156e3331cd0c06a07699d4b70beb9b39d1"
+  },
+  {
+    "path": "api/alembic/versions/08bb6e7f1397_added_campaign_table.py",
+    "sha256": "c897ce6f4d43ef026750dcb13914697e5243c5a3dbf4ee2a7781d9dc295a8744"
+  },
+  {
+    "path": "api/alembic/versions/0a1b2c3d4e5f_add_mcp_in_toolcategory.py",
+    "sha256": "f5d3ed690c2629622f73eabed5dad9d03115a50494fd906719582850dd8f7e75"
+  },
+  {
+    "path": "api/alembic/versions/0c1223cc266f_make_json_not_nullable.py",
+    "sha256": "5567d3538c3a3010cda77145dbf80ca024e1db1bf0dcade1826fa9bb3221547c"
+  },
+  {
+    "path": "api/alembic/versions/0c1bbc83fe9e_fix_unique_constraint_on_workflow_.py",
+    "sha256": "9d8cd8d52e93c3d5df20d1957e0e55d2e8c69831aa25b1211801aa95bcc25bc1"
+  },
+  {
+    "path": "api/alembic/versions/0fe708f2acb9_add_call_disposition_codes.py",
+    "sha256": "ca5d6a4c6f0d810e003036b0a92e0c2653d3bfe1489c8342f649a5a1de488aa7"
+  },
+  {
+    "path": "api/alembic/versions/1225ac786848_add_organization_configurations.py",
+    "sha256": "6d6fafc82ea72ddc70ff715f1997f8584369fd68b681f4a95aef9a5746f21eda"
+  },
+  {
+    "path": "api/alembic/versions/13ccd6e1f5ad_add_workflow_run_mode.py",
+    "sha256": "b41a06d3d778f8ce142796edea09cd6535b9b71541180dfdfe719315c862bac6"
+  },
+  {
+    "path": "api/alembic/versions/181475b2a1a1_add_public_access_token.py",
+    "sha256": "1a33af00dd5a637e9f8a170001674db002f91bc13a7d258208cc14a87075ed26"
+  },
+  {
+    "path": "api/alembic/versions/19d2a4b6c8ef_rename_integrations_organisation_id.py",
+    "sha256": "b6380de29fb229af3331ae840ac5ef6381670d2343779d9ae81f7f112aa39b34"
+  },
+  {
+    "path": "api/alembic/versions/1a7d74d54e8f_add_transfer_call_tool_category.py",
+    "sha256": "ba7eb17db0c339d853f527609d2638554e72eb006337aaa633846c86df9970d6"
+  },
+  {
+    "path": "api/alembic/versions/1d441e79db94_add_user_model.py",
+    "sha256": "206855dfa64973d6cc7a58f1a65c2561fc88b738a00d40385157f923a78b48fa"
+  },
+  {
+    "path": "api/alembic/versions/1da1d650c0e4_add_total_call_duration_to_usage.py",
+    "sha256": "8838f0b513ceb83e18eecb2ae1d4719e726dac3e1b435cad2a3004e97409d5a0"
+  },
+  {
+    "path": "api/alembic/versions/20c780c2a218_add_provider.py",
+    "sha256": "c1ab4c8e14f1fa7166d37fac0d27697fea9b3126ca6cc2769085bb75ebf83791"
+  },
+  {
+    "path": "api/alembic/versions/2159d4ac431a_added_quota_tables.py",
+    "sha256": "5c7998636f606ac13e2bc08abe3b034aeb125e4c391fab1c3435236ff3f64a9c"
+  },
+  {
+    "path": "api/alembic/versions/2d6e2f41caa2_add_workflow_run.py",
+    "sha256": "cd275533bec6dc4407c0035c8d8065a37ce62fdae5bc8afd8985a1ad8b8471d5"
+  },
+  {
+    "path": "api/alembic/versions/2dfee251117b_fix_defaults.py",
+    "sha256": "45a02a8a902af59b2b2e0825a02dcfbc729a33416cebd826fb8267f16f13c0f0"
+  },
+  {
+    "path": "api/alembic/versions/2ed4baa89f15_add_annotations_in_workflow_run_model.py",
+    "sha256": "f4ac53c523d311c8f9128330de1e2e5706db02249ad8418111ccc3308cdc9f04"
+  },
+  {
+    "path": "api/alembic/versions/2f638891cbb6_add_workflow_run_text_sessions.py",
+    "sha256": "060ba66563e65e3d4593bd68716ba8b38d4abc34052c49076f2534e9537700f0"
+  },
+  {
+    "path": "api/alembic/versions/34c8537dfde5_add_processing_state_in_queued_runs.py",
+    "sha256": "f8325a62fd77c857016717a24197e2fe740da75be54625157972c1cdb724c56b"
+  },
+  {
+    "path": "api/alembic/versions/36b5dbf670e4_add_external_credentials_model.py",
+    "sha256": "f21b61cb01e272afe6d4d3d92694684d1d7aa265987888d4b6f92bb2eb3214ed"
+  },
+  {
+    "path": "api/alembic/versions/3717ae6146e2_add_workflow_configurations.py",
+    "sha256": "314a8762505f0b9e8bd27464a2a7db6951fcb65af06998ea0d47c4ca77fdec19"
+  },
+  {
+    "path": "api/alembic/versions/37d0a90fccba_add_api_keys_model.py",
+    "sha256": "a82830eaa9aafffabb625618f9882a6acf0e5f524ca99405752345728db851f4"
+  },
+  {
+    "path": "api/alembic/versions/384be6596b36_make_email_case_insensitive.py",
+    "sha256": "7c9c25bea23601fcd11cdec238c74a754bfd278e6e38654f97558b6240415c8f"
+  },
+  {
+    "path": "api/alembic/versions/3a0384c5ab2e_add_user_configuration.py",
+    "sha256": "e30f5282d37df8b8945ecd1c34eff318569a88944d7409a6691d87a1d83610be"
+  },
+  {
+    "path": "api/alembic/versions/3a30110d7cd7_added_livekit_room.py",
+    "sha256": "7b5924e668af723e5271a2a1c6761771bbb5e23f6d314cad832e98303575db08"
+  },
+  {
+    "path": "api/alembic/versions/3cd3155084a2_dedup_org_scoped_recordings.py",
+    "sha256": "6c066c508fad4d7f36904e7c8dcd7f1ca07d6ffe96a0853fd39b16a09c70fd05"
+  },
+  {
+    "path": "api/alembic/versions/45fa7fec2993_add_selected_organisation_id_field_in_.py",
+    "sha256": "1b6d32be673be7f289fb49a13c940df6c5f3e20f504789adb7f58d54ddfb2c41"
+  },
+  {
+    "path": "api/alembic/versions/4735a1f0cdb3_add_queued_runs_table.py",
+    "sha256": "6e1f40116e61d8f6cc921ce74f296a83d32b1876ea601922aaed4c01242d01cf"
+  },
+  {
+    "path": "api/alembic/versions/477b47ce346b_add_organisation_id_in_workflow.py",
+    "sha256": "c95b6b5a50c48f765eb48eb9cb274d4fed2922db3609dc41bfa4ac719cbd805c"
+  },
+  {
+    "path": "api/alembic/versions/488eb58e4e6e_add_cloudonix_mode.py",
+    "sha256": "7b9ec6ad17be1229e3959fff826e0e99a50bfdcf4f1cfc7943b692b8be937a6a"
+  },
+  {
+    "path": "api/alembic/versions/493ca2bb001f_add_end_call_tool_category.py",
+    "sha256": "a8f755b4b91ba864587cd83a9469de810e44f9d9c9e663a1ce255cbb881aad3e"
+  },
+  {
+    "path": "api/alembic/versions/49a8fe6841e6_add_state_field_to_workflow_runs.py",
+    "sha256": "5cf00b524c6a9795176bc475c8f166a39b3e08e8923a0f610852ba52f783d94d"
+  },
+  {
+    "path": "api/alembic/versions/4c1f1e3e8ef2_drop_looptalk_tables.py",
+    "sha256": "5271ce3a913312e87712c16de14781d9cb90bfbd032de2eede586bf4a1df7e68"
+  },
+  {
+    "path": "api/alembic/versions/4d8e9b2a3c5f_drop_workflow_run_mode_enum.py",
+    "sha256": "1e15cd7cea961ede96352ac3cbc70baa465278a9b0dd6bb3d5d3cbde8d88877b"
+  },
+  {
+    "path": "api/alembic/versions/5253971e3f03_add_teplate_context_variables_in_.py",
+    "sha256": "c2e1cbb432f06e4c0186b31d8169f2384ce4a8b91cd5e271b58cb039022c077f"
+  },
+  {
+    "path": "api/alembic/versions/58f17b468b3c_add_workflow_definition.py",
+    "sha256": "dc78e18866aaf46d851c0c54737c9ea38d3c9e1ca020c666a59129c1b9220580"
+  },
+  {
+    "path": "api/alembic/versions/594f16adf97c_add_timezone_info_on_tables.py",
+    "sha256": "a733390f740044710aec415a4d8517a46ef42ac612b09d1fbfae86fec66c3fd2"
+  },
+  {
+    "path": "api/alembic/versions/6499c608d0f6_add_campaign_logs_column.py",
+    "sha256": "e80d9f2e3478aae05caa6b0bfd36cc6f27f2f2bcaa69bd25c3bee39e3ee9a2ab"
+  },
+  {
+    "path": "api/alembic/versions/67a5cf3e09d0_unique_recording_id_per_org.py",
+    "sha256": "e61a67b28dd33e7c17e91e14e7e1a61fe64d901de0ce5cdc3f60413010434446"
+  },
+  {
+    "path": "api/alembic/versions/693a865c011f_add_status_in_workflow.py",
+    "sha256": "ba3158a3c511c3d57beb47932d40db45c202912d4714baf2e3b5488479a55419"
+  },
+  {
+    "path": "api/alembic/versions/6bd9f67ec994_add_folders_and_workflow_folder_id.py",
+    "sha256": "c06e38a4cb71851b21af2e65f2a5298beab1cc7a17152e0e30c3370add9e6bb7"
+  },
+  {
+    "path": "api/alembic/versions/6d2f94baf4b7_add_ari_mode.py",
+    "sha256": "6cf491f5279519d4f6734a6090f62c000a0c0dec2614424990b7e0ececc18440"
+  },
+  {
+    "path": "api/alembic/versions/6fd8fac02883_add_user_email_and_password.py",
+    "sha256": "8b9db6c62494689f5a8e1657bfe304dd3bfae14a8d10964341adad10523ef95f"
+  },
+  {
+    "path": "api/alembic/versions/7e90cc8d025b_add_workflow_template.py",
+    "sha256": "52f30e443aabd4c0f71f34fd4acc177c52fce73eab16f45c8020a31796723c26"
+  },
+  {
+    "path": "api/alembic/versions/7feef09d7cc6_add_price_per_second_usd.py",
+    "sha256": "31879a713801df9b7776bdb27555f23084d403fe64316ebde9748723151ea846"
+  },
+  {
+    "path": "api/alembic/versions/93a1ddbb6ffd_add_workflow_model.py",
+    "sha256": "1724e0b7067377e7b4dfca9db7c1ec88b1df9e1d2e09df77c3be6f94976768ee"
+  },
+  {
+    "path": "api/alembic/versions/9641b4f306cd_add_is_superuser_to_user_model.py",
+    "sha256": "c8c2565d4a5ecb634b020270342799071bd291f271b868fbc1fea6a2c05e204c"
+  },
+  {
+    "path": "api/alembic/versions/982ec8e434be_add_storage_backend_in_workflow.py",
+    "sha256": "48234548ee7585c3e9cdab81177695311adcdf1d976513377cc3a254fcd3ca7a"
+  },
+  {
+    "path": "api/alembic/versions/9be6240baa00_add_recording_and_transcript_urls_in_.py",
+    "sha256": "3b9e980d03944e6800d524c9de116dcf21acee9b2560e32a28c38410d4fc4576"
+  },
+  {
+    "path": "api/alembic/versions/9ef49df72862_add_workflow_id_in_workflow_definition.py",
+    "sha256": "261034b32dc56702096e09a5ff585290002002de704c49c339e6a790238b6b1e"
+  },
+  {
+    "path": "api/alembic/versions/9f25ff8f3cbd_add_actions.py",
+    "sha256": "b1bb6f966f8eefc773666cd5dbaa5ddd125f1e4d979f9e3b3c1de84247c6272d"
+  },
+  {
+    "path": "api/alembic/versions/9f5f2d35f6fb_remove_workflow_definition_id_from_.py",
+    "sha256": "7bcd9adfbaf0b30a9f64e79c9e2eebd2affb03a925f840f961b8f3c492e6774a"
+  },
+  {
+    "path": "api/alembic/versions/a188ff90e76f_add_vobiz_mode_for_workflow.py",
+    "sha256": "fb2a713876aa994a80856cd35fd3c56362225a11f1e75fd7b896a264c5df71e9"
+  },
+  {
+    "path": "api/alembic/versions/a1b2c3d4e5f6_make_tts_columns_nullable.py",
+    "sha256": "2ad3e7b8fd4044228cb279392400612cd7893ac54543ec56148ecdf88aa00e11"
+  },
+  {
+    "path": "api/alembic/versions/a2355fc6bdc1_add_multi_telephony_config_tables.py",
+    "sha256": "6a46eb1c46027ba82a8f0987ee55cfbc6c21ca955e403b41ad3b69623a2217ec"
+  },
+  {
+    "path": "api/alembic/versions/a29b05f31ddf_add_last_validated_at.py",
+    "sha256": "84143c0d530b76bb68491cf7be0f39c2707ba0d6ffb642ed86b02d11c977bc86"
+  },
+  {
+    "path": "api/alembic/versions/a2b092ff7282_add_usage_info.py",
+    "sha256": "d0872f575f0e508d364edc6ad17d39bce4893d2ac5956b9a851dbcc50d453238"
+  },
+  {
+    "path": "api/alembic/versions/a399b39479fe_add_versioning_in_workflow_definitions.py",
+    "sha256": "d4c669862962a281d9dce33b235558b0972f4450b60395e599e18f98a68fe120"
+  },
+  {
+    "path": "api/alembic/versions/a57d25b75117_add_vonage_and_rename_config.py",
+    "sha256": "dc59e7bfc0e35644511c9ceafe2d0fb786a16c4c380fc1a9f8ccf9eefa393987"
+  },
+  {
+    "path": "api/alembic/versions/a75ae71af479_add_log_in_workflow_run_model.py",
+    "sha256": "c2a59e8b515b5d922c2eca5157613601f5ba00bd4e6e4b73dfad77a472e4f3f0"
+  },
+  {
+    "path": "api/alembic/versions/ac6da37c5034_add_created_by_in_integration.py",
+    "sha256": "98b82bb343ea3b61c046fca5f41476843374f84bc5527fdff699c4f976fc31b9"
+  },
+  {
+    "path": "api/alembic/versions/b3a1c7e94f12_add_telnyx_mode.py",
+    "sha256": "59bbcd8dcff3041da1a63cb7cdedeb7ba7b3e3680976ff0920de79905753cd63"
+  },
+  {
+    "path": "api/alembic/versions/b79f19f68157_add_call_type_column_to_workflow_runs.py",
+    "sha256": "53c3439be2bdea031aed85bd9c1587f88615365eb93bbfbff51a021a9a12cd80"
+  },
+  {
+    "path": "api/alembic/versions/bee2a9fcc6a6_fix_datetime_to_be_in_utc.py",
+    "sha256": "8160305e0aeb69983fcb3cff66f508b8e5aa7b3148f050e6c0b70d648475835f"
+  },
+  {
+    "path": "api/alembic/versions/c425d3445750_add_columns_in_usage_table.py",
+    "sha256": "8f736844b6da794d1eff5ba7fe3e5cd001589056567c11f3a230725776a47d75"
+  },
+  {
+    "path": "api/alembic/versions/c71db647d354_add_calculator_in_toolcategory.py",
+    "sha256": "8b4106c1f9ea2545e72623aff34f398849ade3dce88f875f9ce8531cb0dab4ca"
+  },
+  {
+    "path": "api/alembic/versions/c7c56dd36b21_add_agent_trigger.py",
+    "sha256": "56086f317db9707a763f826b3f61560e74fd28b582d49d9d8d02a157a7ee9a29"
+  },
+  {
+    "path": "api/alembic/versions/cdc80a4fd2dd_add_template_description.py",
+    "sha256": "2ed0dcdc65f5bbaff4cfb851c760c06c2adcb1f22e03c9514ba15eebb680ed92"
+  },
+  {
+    "path": "api/alembic/versions/cdcf9f65913b_add_workflow_uuid.py",
+    "sha256": "310e0aa3796d50e33645b52209caeed137e07020f6a8a6fd7aa0fee7ca78fe91"
+  },
+  {
+    "path": "api/alembic/versions/d0060de90c18_fix_migrations.py",
+    "sha256": "1e03914b07c43275f0719ed381b5ceaa3924085ec075b8b072849a9dc4cdd94e"
+  },
+  {
+    "path": "api/alembic/versions/d11fbd083a55_add_connection_details.py",
+    "sha256": "91bdd9a2eb59fd9fe1d15912f54a9262892523459e7d0db74ecffd4ff25574d8"
+  },
+  {
+    "path": "api/alembic/versions/d1dac4c93e61_add_partial_index_on_call_id_for_.py",
+    "sha256": "9529ea782d3f0be279b390a6c33df00573a37d81b5af5cefabad4c33ec1718b3"
+  },
+  {
+    "path": "api/alembic/versions/d666f3244648_add_integrations.py",
+    "sha256": "bce245d35ea22b15c878e84e2f5b1f6afe8b418192ce607d8848402adea12efd"
+  },
+  {
+    "path": "api/alembic/versions/d688d0da1123_backfill_workflow_definition_versioning.py",
+    "sha256": "e7cfd469e109d72a7c3894ad831b6c946f59c66cb834c1b43b54b5b07b618d26"
+  },
+  {
+    "path": "api/alembic/versions/dc33eef8dabe_add_document_tables.py",
+    "sha256": "7c4caa54cc8bcd5e44ea0688935ee53fc7cd217a126cfaa26a816e59217eb3ab"
+  },
+  {
+    "path": "api/alembic/versions/dcb0a27d98c6_remove_unique_tool_name_constraint.py",
+    "sha256": "31de59a2adbbfd580630d14164ffa81d10b3d39f8fad58542b23a5ef80fe8077"
+  },
+  {
+    "path": "api/alembic/versions/e02f387b7538_add_embed_token_model.py",
+    "sha256": "c64e19efeeb7f34e6c05e9e7966c7984b255962d396d299a0c4eee4d665c7d88"
+  },
+  {
+    "path": "api/alembic/versions/e0d1a9b9f6c4_add_looptalk_testing_tables_without_.py",
+    "sha256": "30a4b0f091875653f24736ca16cd03818676962ce4f1263ecfc08eba9e6c8b76"
+  },
+  {
+    "path": "api/alembic/versions/e54ddb048535_add_recording_table.py",
+    "sha256": "b9e91d833ed920807ab4b3f7857859c7ab09e682c7594c6bafce0afa6b912e16"
+  },
+  {
+    "path": "api/alembic/versions/e7254d2c6c18_add_retrieval_mode_in_document.py",
+    "sha256": "1da5355691a3c6980004bff61a093fcfdc69f178294f06b179cf878b6976c2ca"
+  },
+  {
+    "path": "api/alembic/versions/ebc80cea7965_add_tools_model.py",
+    "sha256": "bc435bca0c7f313505ef98f6ebeb33019fa881d3d2b7b9a431a6a66514cb0bb2"
+  },
+  {
+    "path": "api/alembic/versions/ec010596a0b4_change_datatype_of_usage_to_float.py",
+    "sha256": "9eb84b63cd639c69cab4aad9af3655292dc850b8e7daa3864f0ff86afb23c15a"
+  },
+  {
+    "path": "api/alembic/versions/f2e1d0c9b8a7_add_plivo_mode.py",
+    "sha256": "d4db5d241fb2af73b925e408cbdd95813d851a595c2fd84392bddae5305ae69d"
+  },
+  {
+    "path": "api/alembic/versions/f6f19156bcb7_add_organisation_table.py",
+    "sha256": "118bf2af286be918748aaec51513db46eddfc67dc7391417b726f17969fb04ab"
+  },
+  {
+    "path": "api/alembic/versions/f952c9c1105a_add_failed_state_to_queued_runs.py",
+    "sha256": "f4d7cb66eb62b133dc38e4bed70eeb71472a48087a7683538c18a185b1a83159"
+  },
+  {
+    "path": "api/alembic/versions/fec0fb9a8db7_add_index.py",
+    "sha256": "22c3f7954c5de503946dcbe1e18769724eb7e9e8a98eb7b4cdecef853f579e03"
+  },
+  {
+    "path": "api/alembic/versions/fefdd1835b7d_retry_outbound_calls_for_campaigns.py",
+    "sha256": "5906d65f9ed13f3d837c7270832ca3ec73d2fd9c7e2b9c43bb4e5e537c7bc026"
+  },
+  {
+    "path": "api/alembic.ini",
+    "sha256": "c2aa4588493a7d14ce65c32c73b249886b49612835209b8c1abd19a73ef1849c"
+  },
+  {
+    "path": "api/app.py",
+    "sha256": "89563a9d4b2c961be459dff611cc90e7902b4f9a2e9400d125000ab39483d655"
+  },
+  {
+    "path": "api/assets/office-ambience-16000-mono.wav",
+    "sha256": "acbdcd203967ba1195cece621c7aa990db3447ab1ac12ce8322dd872885b2a0a"
+  },
+  {
+    "path": "api/assets/office-ambience-8000-mono.wav",
+    "sha256": "c0ce1631089da455bd0d16b64b5e8d10cfb732774ecd78e83aa1a03fefbc67f6"
+  },
+  {
+    "path": "api/assets/transfer_hold_ring_16000.wav",
+    "sha256": "7e04d8d9db6e0e7e0b159a6239e93bef3596492244c926e09a5e7575a5be416f"
+  },
+  {
+    "path": "api/assets/transfer_hold_ring_8000.wav",
+    "sha256": "d3e2925120d764bb0697adbc4722aa1bbf81aebf6c6677f6662af51d7c171500"
+  },
+  {
+    "path": "api/conftest.py",
+    "sha256": "cca524db0ec1a7fe51132f0b06703892940c0477277239eb136f8825576d2822"
+  },
+  {
+    "path": "api/constants.py",
+    "sha256": "cb2644c22dc8c0fe8f2a15a9e268019f87f9f9dbb8bf629fa7097399550cc8ff"
+  },
+  {
+    "path": "api/db/__init__.py",
+    "sha256": "6f806d79e60f107ef0d90237825f748f306d2228d877ecccc9f1c9e870e4e6d8"
+  },
+  {
+    "path": "api/db/agent_trigger_client.py",
+    "sha256": "8ca0c61e2fa551de26752184d14570287edc3b261a0024bf4c08efe2baf4343b"
+  },
+  {
+    "path": "api/db/api_key_client.py",
+    "sha256": "6147d1b9f8c90b2a70561ddcad5a41feaefd366ba183afad2fc1d67c42c41fe5"
+  },
+  {
+    "path": "api/db/base_client.py",
+    "sha256": "3f03fe9ce40e64f83f4ab81faad5e96b1473582442bc1040ed8a597149cf6c6b"
+  },
+  {
+    "path": "api/db/campaign_client.py",
+    "sha256": "0962675466294bead6aa5601a11431d8ac22f2858a8029415ef66dd063528ed0"
+  },
+  {
+    "path": "api/db/database.py",
+    "sha256": "12f866cd67d0e86004fb0d40d201c39104df76bf1afd7e817515877483961638"
+  },
+  {
+    "path": "api/db/db_client.py",
+    "sha256": "6fa6f91ede37e6cad6ee7cc804058873591bdb61bc262764980203e1912ce40d"
+  },
+  {
+    "path": "api/db/embed_token_client.py",
+    "sha256": "8ace8437b3ed50170d9fbe63010e15be49f1de1268f5ba1e1019cfc7fa0c2f2f"
+  },
+  {
+    "path": "api/db/filters.py",
+    "sha256": "20b0fe35f37be200724189946b0e9404ba600603eff2a00fc4feeb681dd3327d"
+  },
+  {
+    "path": "api/db/folder_client.py",
+    "sha256": "363b790216815d80714976175be1b5757cace8a942f02957ba14c4bfe6fd214b"
+  },
+  {
+    "path": "api/db/integration_client.py",
+    "sha256": "a9ac218e8eea1971470cfedc81b530264811f9b3ca4fc122137d675bdea949d4"
+  },
+  {
+    "path": "api/db/knowledge_base_client.py",
+    "sha256": "046bafaa57e6837f7da99ba930349d903cfa7aa0ac1534c217b2323fe815ccd7"
+  },
+  {
+    "path": "api/db/models.py",
+    "sha256": "aeabf6bea01a721b65097a6258006a351c442bf1d6e01e079f8f1725eba0a0b4"
+  },
+  {
+    "path": "api/db/organization_client.py",
+    "sha256": "aa02c17f28d4abbc3d0931baa7884eaf8ec0a6b538827eca0af52d906ea2ae84"
+  },
+  {
+    "path": "api/db/organization_configuration_client.py",
+    "sha256": "0b434a67e76f0f9a5b4fd8026124b8e044d3285fb0d61510bdca413b07a025ac"
+  },
+  {
+    "path": "api/db/organization_usage_client.py",
+    "sha256": "ca3f978d919d1d9c5b54c4bee0816c204ab36104336b44cea9fbe27dd057e47b"
+  },
+  {
+    "path": "api/db/reports_client.py",
+    "sha256": "175adae6b689cfe9148b88669240539d6d35a554374f102bf270e1be1dff45f3"
+  },
+  {
+    "path": "api/db/telephony_configuration_client.py",
+    "sha256": "9fc377f14b03273346cf362a9b2998c5dba7689c67dd98cf4c69a7ecc330945f"
+  },
+  {
+    "path": "api/db/telephony_phone_number_client.py",
+    "sha256": "4ab318b73bb60956db205be91f02abf73da615ef19d42eac657916f9deb8654b"
+  },
+  {
+    "path": "api/db/tool_client.py",
+    "sha256": "b09e67558acc0ce62bde1a8b79efc5dae60253b5e0902f8f1b196c33e3782a0d"
+  },
+  {
+    "path": "api/db/user_client.py",
+    "sha256": "ae236fb7225769332a3d10372df478b395e256208ad3356c5c191de15dfe9298"
+  },
+  {
+    "path": "api/db/webhook_credential_client.py",
+    "sha256": "d1de578fecb75faa5961bdff80fcc2d2835995e27c479ed2d61577292833b4e6"
+  },
+  {
+    "path": "api/db/workflow_client.py",
+    "sha256": "f4fb9277913d59583f1c1bc07b8b60d5ef36df932726c1391e578b309eeac637"
+  },
+  {
+    "path": "api/db/workflow_recording_client.py",
+    "sha256": "41cf262b2969750834c861ef5987f2236af55a10705ff7621a68c5e6890a8ea0"
+  },
+  {
+    "path": "api/db/workflow_run_client.py",
+    "sha256": "0cdb9588d853feda8f9df3ffb68ded4b61cd7369cdd4f58c2f9763b7e2b909cb"
+  },
+  {
+    "path": "api/db/workflow_run_text_session_client.py",
+    "sha256": "061a1775f4ae815f84e752d9f7e895e1fd1a1c446ea356688a5179cb89dc3829"
+  },
+  {
+    "path": "api/db/workflow_template_client.py",
+    "sha256": "108983699bcb88e5d60ac4f6ea1eb809141341abcc6d33d59ff2873207101ae8"
+  },
+  {
+    "path": "api/enums.py",
+    "sha256": "28a9cc7a200c6fb2f3b50c9a540aae641fc898e2b6a57ab66a6e00073494d497"
+  },
+  {
+    "path": "api/errors/__init__.py",
+    "sha256": "c0e74a05d1a3b0e5802da70913a013008588c5d47dc8ee5a5fe4a26876771aef"
+  },
+  {
+    "path": "api/errors/telephony_errors.py",
+    "sha256": "22492e2f37e2016c2e92e35bd68d4f8e9e999e9c9d12302a8862a90a289bcebf"
+  },
+  {
+    "path": "api/logging_config.py",
+    "sha256": "32a0bab4f905261b6c41b88c51b4dc31371b425924c57e183a28deda9f63607c"
+  },
+  {
+    "path": "api/mcp_server/__init__.py",
+    "sha256": "ae457ac64952102f5c59a197acba8485fce285fc0603864e3874ce66881a5a45"
+  },
+  {
+    "path": "api/mcp_server/auth.py",
+    "sha256": "d3d0214b54807d18a19eb72b9857ad6c23d79cc61b79701be4680c17e0b90ec0"
+  },
+  {
+    "path": "api/mcp_server/instructions.py",
+    "sha256": "92d5d638405dcff95426ef1582ca6af82337567c753043019f0ec96c965c9a8e"
+  },
+  {
+    "path": "api/mcp_server/server.py",
+    "sha256": "8b5c3b313c4626e7d1231a1d71227dcbfc52e34c9b826b37d12b8eabfd3913e0"
+  },
+  {
+    "path": "api/mcp_server/tools/__init__.py",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "api/mcp_server/tools/_workflow_projection.py",
+    "sha256": "5a2727f89012f22a97964d255dead3b185b48660a47391008e652bf17520c260"
+  },
+  {
+    "path": "api/mcp_server/tools/catalog.py",
+    "sha256": "0b3db80206a1b62755ba3c3fc852394aa1aa109431be43ec6266ca8d88fc43a0"
+  },
+  {
+    "path": "api/mcp_server/tools/create_workflow.py",
+    "sha256": "f44223d407daea0a1376c6b5497d2d1c6cda0432524c0d582246579ef21bc78f"
+  },
+  {
+    "path": "api/mcp_server/tools/docs_search.py",
+    "sha256": "131b43c47600cc17c9f810080d466844e1e7339a2f1c05c17cb7db48c3f67c52"
+  },
+  {
+    "path": "api/mcp_server/tools/get_workflow_code.py",
+    "sha256": "e658137fc2c6d466cbe37ff4d687c8bfd5b95880984bdb33d641b9527fbe3790"
+  },
+  {
+    "path": "api/mcp_server/tools/node_types.py",
+    "sha256": "c9957587f2327438a9f04c6b5199ca539ce81f7a77b5870859b21b296ef9772b"
+  },
+  {
+    "path": "api/mcp_server/tools/save_workflow.py",
+    "sha256": "e283341d1cc78ee45fec84d4e9cb3f8f6ff705773a0568ff56101ec468453594"
+  },
+  {
+    "path": "api/mcp_server/tools/tool_creation.py",
+    "sha256": "12186a91e87909d91c6cc5cb8d3faf985c61afa16f1697e68ad0458650667cf2"
+  },
+  {
+    "path": "api/mcp_server/tools/voice_prompting_guide.py",
+    "sha256": "db2f268363fca061cd1ba1e70d9270a300773dc4f4f4f0caca0a1eff55bc9dd4"
+  },
+  {
+    "path": "api/mcp_server/tools/workflows.py",
+    "sha256": "1c3784d367991065b75d9fdf5eed040d0a476d62724f9a352fffc51967d6b2c7"
+  },
+  {
+    "path": "api/mcp_server/tracing.py",
+    "sha256": "4ae5490c51e39fcae03e8e07db1204241b11d13e9db3004ff49a33bc5df99123"
+  },
+  {
+    "path": "api/mcp_server/ts_bridge.py",
+    "sha256": "e4f2df3b837201a9f4c9dce8d4ec46a33e68b40237c3e6f5a49a60fbdb1a810e"
+  },
+  {
+    "path": "api/mcp_server/ts_validator/.gitignore",
+    "sha256": "4d56952b0fb13bf8f9b6c13a6d4c34a075bac3af447636a1df4335d7576e2f97"
+  },
+  {
+    "path": "api/mcp_server/ts_validator/package-lock.json",
+    "sha256": "92006977fa7e215b243dacc00b33e82675a3a3b808bab7bf1f31d55db5bcbb6a"
+  },
+  {
+    "path": "api/mcp_server/ts_validator/package.json",
+    "sha256": "e6edb4c9ae8cbb37d805566b847ea73b4d1bd11c4cd3af5863c24146c683e7db"
+  },
+  {
+    "path": "api/mcp_server/ts_validator/src/generate.ts",
+    "sha256": "3e666292d5020cc8f7dd523b70b9609cfda97c6fe5e064209cfd515bb8e0c4e8"
+  },
+  {
+    "path": "api/mcp_server/ts_validator/src/index.ts",
+    "sha256": "11ee832014c6367c77eac37b6bb0d13a2610e249ac57088246865d3e3277da94"
+  },
+  {
+    "path": "api/mcp_server/ts_validator/src/parse.ts",
+    "sha256": "d05fd76e9c00acfc6b0b9ff9fcb2917971a8f7bba56c523194166fc4cd4758a4"
+  },
+  {
+    "path": "api/mcp_server/ts_validator/src/types.ts",
+    "sha256": "3bda32a648475426e5d5b0d41d7f4d03d3536d9ada58d5e681b8a491e3e25b3c"
+  },
+  {
+    "path": "api/mcp_server/ts_validator/tsconfig.json",
+    "sha256": "30101047894ac1b37e608453aefaccf3a3537dda1c24e080aa7d85b1b3a8f563"
+  },
+  {
+    "path": "api/native/rnnoise/librnnoise.so",
+    "sha256": "0f8327b5c02de8eeb3b589f8751a045f4c14bd37ad4c562512508f2df0a83d96"
+  },
+  {
+    "path": "api/native/rnnoise/librnnoise.so.0",
+    "sha256": "0f8327b5c02de8eeb3b589f8751a045f4c14bd37ad4c562512508f2df0a83d96"
+  },
+  {
+    "path": "api/native/rnnoise/librnnoise.so.0.4.1",
+    "sha256": "0f8327b5c02de8eeb3b589f8751a045f4c14bd37ad4c562512508f2df0a83d96"
+  },
+  {
+    "path": "api/pyproject.toml",
+    "sha256": "af5cc90c37de1eec58d45f365709cf654f097e3fd19d33347652927a833aa911"
+  },
+  {
+    "path": "api/pytest.ini",
+    "sha256": "4fbe316ce15414288b823fc66d3443aa523877f307996bf610780e254a1a3237"
+  },
+  {
+    "path": "api/requirements.dev.txt",
+    "sha256": "f72011108a0ee38faf35d7dd098d56c4e56901b0746e1475fc62446a445b5a81"
+  },
+  {
+    "path": "api/requirements.txt",
+    "sha256": "d2977654bbe7ab580f889f0a30e173ed044b5905156d419b2a89c9319a1217f7"
+  },
+  {
+    "path": "api/routes/__init__.py",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "api/routes/agent_stream.py",
+    "sha256": "ad986354892ffe32b33729d94c80760a3ad187a63f606092695cb928c0625e7d"
+  },
+  {
+    "path": "api/routes/auth.py",
+    "sha256": "7fa3a16d44b3c379a753e42e9987737a88fc14b59a2fba651edc1d831f355063"
+  },
+  {
+    "path": "api/routes/campaign.py",
+    "sha256": "76a11d06fcbabfd393f3f83f1926d29f288485120b6fbecb57a726d89e6f15f8"
+  },
+  {
+    "path": "api/routes/credentials.py",
+    "sha256": "e9da5a6fb03bfc00688542c653d7582548a667b9b873137be993ea6b9ca3d435"
+  },
+  {
+    "path": "api/routes/folder.py",
+    "sha256": "16da810f97b3017328898be9b00152db7672b83cbc1a557fe01b2395a58bfdd7"
+  },
+  {
+    "path": "api/routes/game_companion.py",
+    "sha256": "996ea9524d00d6493170eb357984edde896e08c1d318d4cb7a4f3f0cb9969778"
+  },
+  {
+    "path": "api/routes/knowledge_base.py",
+    "sha256": "0d4fcfacc2c940551ee4c83abe5a9bb2b779b616402ff4c705284e51d85d9198"
+  },
+  {
+    "path": "api/routes/main.py",
+    "sha256": "bff8b649c53e68547d421263fea23d9f05a6f7769d0a5eb48e9e415d67a4d554"
+  },
+  {
+    "path": "api/routes/node_types.py",
+    "sha256": "6c0b8d5a4ec25afb97648ab0dc9160ce815fb210e6c9fdff4052d2b4af60838e"
+  },
+  {
+    "path": "api/routes/organization.py",
+    "sha256": "2244ff9a1f377425caf024e48bfc2efc0239e385df77b072435767b2ceefd28b"
+  },
+  {
+    "path": "api/routes/organization_usage.py",
+    "sha256": "a0083ee5e8b01e599f7e435076c7b465f2103d5f3c1e7269f1d59d859ea84ec1"
+  },
+  {
+    "path": "api/routes/public_agent.py",
+    "sha256": "cf6a430449a3e413d1f5cee077c5f73b3957f53ce276fd5bc68df6d213dc59a7"
+  },
+  {
+    "path": "api/routes/public_download.py",
+    "sha256": "b30a8616857de15d86b1ce2c7f074a6377f8588d55122f06559669d2c4cf8642"
+  },
+  {
+    "path": "api/routes/public_embed.py",
+    "sha256": "6bb4b8c7152b987071771e5c5b994dbbf6709a7f05ec028c9b9042cd52e15b80"
+  },
+  {
+    "path": "api/routes/reports.py",
+    "sha256": "60a942ed5af8363e7372f16c608ed439606fccfb7a5ae64a9cfd8eb536732f51"
+  },
+  {
+    "path": "api/routes/s3_signed_url.py",
+    "sha256": "35d5c022450e6c0b832d36aa160986d9bab6af1b2a9ab2449cbd06e6de9f977e"
+  },
+  {
+    "path": "api/routes/service_keys.py",
+    "sha256": "61d8242f6c8be729240451cc60e56403a44a8b335406798c8f7c6318082b257f"
+  },
+  {
+    "path": "api/routes/superuser.py",
+    "sha256": "e639e61f3370cf16676985441cf9479d7fff22442db59de7c74f8ac03173ec29"
+  },
+  {
+    "path": "api/routes/telephony.py",
+    "sha256": "0b7861b3ec8fcb3ca87eaffea0cb27372af82f0b181580cdc056b910d8d30b23"
+  },
+  {
+    "path": "api/routes/tool.py",
+    "sha256": "8e19fcff508e847e7d5fb02df5ed199b2ebf0b304a3436ba268294480828ca94"
+  },
+  {
+    "path": "api/routes/turn_credentials.py",
+    "sha256": "447c492d1d3ab1fd1703bb6cdc4f5601c1863941237b03aa527184d424107eb9"
+  },
+  {
+    "path": "api/routes/user.py",
+    "sha256": "db811d6283824e83f2343cc8201fb4dc8f68b2a229bb620a341252f089666f70"
+  },
+  {
+    "path": "api/routes/webrtc_signaling.py",
+    "sha256": "7997fa6414089b3b8579e514bebb30583a2bc7aed56d01a4536b391fb84fe894"
+  },
+  {
+    "path": "api/routes/workflow.py",
+    "sha256": "4834a19d8d081623b7104e2cdd11cd15fdd448ce07b46d29ee5b5130be3f38f2"
+  },
+  {
+    "path": "api/routes/workflow_embed.py",
+    "sha256": "c2579a5942e35c2b9ebb79622503a5dcd5d2b44553766f2debf356a7ef9541d2"
+  },
+  {
+    "path": "api/routes/workflow_recording.py",
+    "sha256": "3aeaa086a6ca98dcee0bfbf21ccd9770690eacdfc84df149ac8eab7602f426cc"
+  },
+  {
+    "path": "api/routes/workflow_text_chat.py",
+    "sha256": "e9db2d2888873f5964689df273f4323c3add73c7d665852daadf94ab4b1bbd8d"
+  },
+  {
+    "path": "api/schemas/__init__.py",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "api/schemas/auth.py",
+    "sha256": "cb0c21d0cc1eb8b108f22b19a5d5ccf414c2590e71979f70ff72359db2411981"
+  },
+  {
+    "path": "api/schemas/knowledge_base.py",
+    "sha256": "b1ca55116a57ac8de89e07007e98c9877897920e1b6a746acc1cd69a3a15a412"
+  },
+  {
+    "path": "api/schemas/service_key.py",
+    "sha256": "915c4d147d99706e65441415b24cb9010ce9fe41ee75fd6eadee384102a92d37"
+  },
+  {
+    "path": "api/schemas/telephony_config.py",
+    "sha256": "d3c383259dbe7e44b3fc8f883522773583c9c6de52333c88ad7a3efa2ec28232"
+  },
+  {
+    "path": "api/schemas/telephony_phone_number.py",
+    "sha256": "82d953e8c3965a4b0dcf2e1e7e68c97cf2ddc3fce9e613d5a0629a2695af7a77"
+  },
+  {
+    "path": "api/schemas/tool.py",
+    "sha256": "ae36e6a20cfa7fddff26dd8a428276ee9b9eda5642d0549e023788fcf38c5e66"
+  },
+  {
+    "path": "api/schemas/user_configuration.py",
+    "sha256": "1ee71e1f1b05cc8775255854e64d487adacb021eea4c08035b0fe1294ada5bdb"
+  },
+  {
+    "path": "api/schemas/workflow.py",
+    "sha256": "64d8b008387568ea4238df6fd2f2c5b7eb6c03c9bdd8ff15719c08818ed41f17"
+  },
+  {
+    "path": "api/schemas/workflow_recording.py",
+    "sha256": "c8e4c245ad0bc6d37d4dae8453946104a64bedc663b7b0e98a7adfde29197349"
+  },
+  {
+    "path": "api/sdk_expose.py",
+    "sha256": "77384b0b340be54ac08cce85ba27f3c31ee94e434fc055fabe67b55b39a20e80"
+  },
+  {
+    "path": "api/services/auth/__init__.py",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "api/services/auth/depends.py",
+    "sha256": "a51426b0906e9b9b8ab886408a1877940f2fe6adfc0ffb0b1ebf52ff90827990"
+  },
+  {
+    "path": "api/services/auth/stack_auth.py",
+    "sha256": "ee649c9697bad253954de1f876907632ac27f5fe5784e1776561c791a78615d5"
+  },
+  {
+    "path": "api/services/campaign/__init__.py",
+    "sha256": "9186ae25a5ed932bea3e4efec4bcc9d354fbedd1ec47ad040eda26e0ead882c5"
+  },
+  {
+    "path": "api/services/campaign/campaign_call_dispatcher.py",
+    "sha256": "878331045e76c65b325b49cd2865a07052ddf435bd4d5449c651360ca0021ff8"
+  },
+  {
+    "path": "api/services/campaign/campaign_event_protocol.py",
+    "sha256": "45e0cb0f0cab1bb5f2b430f56a5cced91e0b15cd4f758852437744d73af55171"
+  },
+  {
+    "path": "api/services/campaign/campaign_event_publisher.py",
+    "sha256": "3b6cc43156cc8b3988c8c0621df3ac5f35928d685bda8c2bd0eeed02147318af"
+  },
+  {
+    "path": "api/services/campaign/campaign_orchestrator.py",
+    "sha256": "0bf52077081511d6ce7fc6547986dbb7c582508568a0ebbd3f76cd358e27b308"
+  },
+  {
+    "path": "api/services/campaign/circuit_breaker.py",
+    "sha256": "db34db2a6cbc59dc36cb9b1ddae76653156c459c38f6f9eb7f418533f0c171da"
+  },
+  {
+    "path": "api/services/campaign/errors.py",
+    "sha256": "c59b718dc27e1565ade5489b6454fa592e8d3c984400e98a643a4818a7c6f52a"
+  },
+  {
+    "path": "api/services/campaign/rate_limiter.py",
+    "sha256": "6a6f4a2edeafb22eb0ecca70398aa4d3581b3de64c433e7e2a03a85cc9b378b6"
+  },
+  {
+    "path": "api/services/campaign/readme.md",
+    "sha256": "bb885df51f23f4b0491054fee088dd7561923917d5abcb77cbdbf78117f1ab5c"
+  },
+  {
+    "path": "api/services/campaign/runner.py",
+    "sha256": "0ede9c46cc77c153e277105cd21208c668fdf3e41fef6a5938ac10ce10a88704"
+  },
+  {
+    "path": "api/services/campaign/source_sync.py",
+    "sha256": "ef440e8a239ec97cd839d36f6ea7b1c45548225d1c6ede0870f8c23c925bb3d6"
+  },
+  {
+    "path": "api/services/campaign/source_sync_factory.py",
+    "sha256": "c79ea2b99e055e788b2ff641247e91c9ade829a7082365cc54b547c5377a7a2f"
+  },
+  {
+    "path": "api/services/campaign/sources/__init__.py",
+    "sha256": "b22550128f33579ec6b4ec16264432e04101b3a6a1d1d6e977383367720251af"
+  },
+  {
+    "path": "api/services/campaign/sources/csv.py",
+    "sha256": "72d1a4c3d42280ec13052bf39f5c76437a359cf68c335a3ca01961b9a2101f02"
+  },
+  {
+    "path": "api/services/configuration/__init__.py",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "api/services/configuration/check_validity.py",
+    "sha256": "6a33bb9ab183ee9fc6fb386a1bf3904d4330efd26b479ffc89e4b664f0d628cc"
+  },
+  {
+    "path": "api/services/configuration/defaults.py",
+    "sha256": "a4c532d3791c386db4e8e4fb3823db9a56e07b601bbfda81040ef9aef4cd9ee5"
+  },
+  {
+    "path": "api/services/configuration/masking.py",
+    "sha256": "a9e06eb9e50a1f37940e81c93d036f140686374ff99e60aee4ab9f93446ff624"
+  },
+  {
+    "path": "api/services/configuration/merge.py",
+    "sha256": "1b2bed2dfc8674c24f0fe1ccf0dc899405b02a0e83537ac10961b27b25453248"
+  },
+  {
+    "path": "api/services/configuration/options/__init__.py",
+    "sha256": "bad111e014cd968ebdb54de967ab6840b8b0f7834bd47a95808ed70a40f67e0c"
+  },
+  {
+    "path": "api/services/configuration/options/azure.py",
+    "sha256": "bb0a596099a6e082a1264d87aeaea448ddc8a76e07716212580f2b18d0d6f599"
+  },
+  {
+    "path": "api/services/configuration/options/deepgram.py",
+    "sha256": "4e6a2162df2551a49ae508c65c7ef6b9be8512a55573ea1a8fb12be79533ba51"
+  },
+  {
+    "path": "api/services/configuration/options/gladia.py",
+    "sha256": "b155d32975a5306f9bdee9243ecdb5b3145ad0135d2f7dafcd42bde5634562e8"
+  },
+  {
+    "path": "api/services/configuration/options/google.py",
+    "sha256": "b48df7dd57ac39dd18269168e135cf96eeef188e5779c9645df25b9d64313f0f"
+  },
+  {
+    "path": "api/services/configuration/options/sarvam.py",
+    "sha256": "096cf17a56a2bbbe2da8c7065fd5e087181ab2515513aa44b800f84c2e037916"
+  },
+  {
+    "path": "api/services/configuration/options/speechmatics.py",
+    "sha256": "9e744583d01af5bf5a3dbbb30b48c3a8d00b598241c0f43badae6c16c85b19e5"
+  },
+  {
+    "path": "api/services/configuration/registry.py",
+    "sha256": "dd153ffd3c5014defbf10f3cad668ed2e20fa94bdd21ec655c3de53c78e92d2e"
+  },
+  {
+    "path": "api/services/configuration/resolve.py",
+    "sha256": "9123925f0fd2d6707abecefa537838bdef03749b2369a31e714ac78bbaaadd72"
+  },
+  {
+    "path": "api/services/filesystem/__init__.py",
+    "sha256": "3ad3028727e214b84873542ee7aa59d24852b51d98a436ed12c37fa8d06da09e"
+  },
+  {
+    "path": "api/services/filesystem/base.py",
+    "sha256": "a671ece11e0acd86b739e78402340272811990916ca9e1e3342295995a7903d2"
+  },
+  {
+    "path": "api/services/filesystem/local.py",
+    "sha256": "1525d5e368b45e61ee1af5f29d5885e0b1e5c45dff598ef7d9651d9c1b282d41"
+  },
+  {
+    "path": "api/services/filesystem/minio.py",
+    "sha256": "7444abc4c6dcf869daf38a8f043cce6f34f076c090fea2efe543662448da8241"
+  },
+  {
+    "path": "api/services/filesystem/null.py",
+    "sha256": "51221950da5bea9119c0b87ba90f3e7dd8c22cf91745d8e42d4ca1c58f7d3768"
+  },
+  {
+    "path": "api/services/filesystem/s3.py",
+    "sha256": "0342857715c2350280a5efc99888d7e2986b6831745c32db07cb5dc189144a08"
+  },
+  {
+    "path": "api/services/game_companion/__init__.py",
+    "sha256": "231fd96ccec33cf7b94757af8b873813909c4274f65add88dc4e13ab831286d6"
+  },
+  {
+    "path": "api/services/game_companion/persona.py",
+    "sha256": "2a87bd612897bc0b7728318ce9258fb929298dc8aae2a61f9ae971e9b8c4f517"
+  },
+  {
+    "path": "api/services/game_companion/protocol.py",
+    "sha256": "764f27cf7600542f3e042256f69db5624ef9e42c0619e00c8adc45c465dd537e"
+  },
+  {
+    "path": "api/services/game_companion/providers.py",
+    "sha256": "b0df7e8752b106c801ebfc381c9684f554ececc7f81d77a5db24bcef06a124b3"
+  },
+  {
+    "path": "api/services/game_companion/session.py",
+    "sha256": "13e00cb4d678356c99a4a8eb69f8e3d36fcbd9ed0dd19a7dc9f587731ce47b8f"
+  },
+  {
+    "path": "api/services/game_companion/speech_text.py",
+    "sha256": "e08099ebe092c8757d0f7a0a53d8eab74e3eb6798e057b6bcb479fda0ea25cc6"
+  },
+  {
+    "path": "api/services/gen_ai/__init__.py",
+    "sha256": "d8af8861a3c7a7398e5ee5997c93e8c1c0adca0adaad1e59a337c29c00f07479"
+  },
+  {
+    "path": "api/services/gen_ai/embedding/__init__.py",
+    "sha256": "419f569cfde44557c82acd1f77d3e9fdb26b00eed31594fc4cfce28dbe66bc39"
+  },
+  {
+    "path": "api/services/gen_ai/embedding/azure_openai_service.py",
+    "sha256": "6157445c853d4b51de4c91ea647db6cebf38fdfdb283df80cc3f1c7b331de59e"
+  },
+  {
+    "path": "api/services/gen_ai/embedding/base.py",
+    "sha256": "5eee8a603ac1b6ba4b08376f2513a4dc845352d7dd6e1a0d4b1c586fc45f5940"
+  },
+  {
+    "path": "api/services/gen_ai/embedding/openai_service.py",
+    "sha256": "b3a60412d47f8c6e0b4588a3d6ac14ea847a0914739264835a34bed2f2ea8ecf"
+  },
+  {
+    "path": "api/services/gen_ai/json_parser.py",
+    "sha256": "fcb079b830341b9f5627618c204478f9c7de50b4bfb90cb9dd71f902d07e7745"
+  },
+  {
+    "path": "api/services/gender/README.md",
+    "sha256": "71a182431d7dc3e448caca294cb2898f5494cda59ffcb0085e9f67440bdb7965"
+  },
+  {
+    "path": "api/services/gender/__init__.py",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "api/services/gender/build_model.py",
+    "sha256": "3d78ca23dc2133a2507af2f123a41eeabab74eef434befc81b7878e2751c6a30"
+  },
+  {
+    "path": "api/services/gender/constants.py",
+    "sha256": "ac1117251db1c593c820dd5f2140f19e789e7470173813a6244d2adf2167bb3a"
+  },
+  {
+    "path": "api/services/gender/gender_service.py",
+    "sha256": "5204aa591353afe5161216b0824c78dfb0908142d10f17b2de8cd8b79949f5bf"
+  },
+  {
+    "path": "api/services/gender/model.txt",
+    "sha256": "5841733d976cfd116f64105d680e5eb63a445e5b988cd9010720383fcc908d23"
+  },
+  {
+    "path": "api/services/gender/test_service.py",
+    "sha256": "da54c90765f5accb48a41efed2640ae6baf09d433b5a1f9d66afee4a5dcb557b"
+  },
+  {
+    "path": "api/services/integrations/AGENTS.md",
+    "sha256": "4b077e7604c42e54a86a4c78db8274193e09bb00a0145466f8491e28e87ab2fb"
+  },
+  {
+    "path": "api/services/integrations/__init__.py",
+    "sha256": "e7ea9432846234ce18dd9b522b2b6cf6c78fcd8a941ef4cbbf0029f33db811f9"
+  },
+  {
+    "path": "api/services/integrations/base.py",
+    "sha256": "92ec5d34b9be563d60c2eb8ec2b06bfb119f5e562d5c3c61fbbcc51cb820b860"
+  },
+  {
+    "path": "api/services/integrations/loader.py",
+    "sha256": "fb357fdbddab449be8a5b434bdf2e0f8dcef45ab18535235f988445037ab4128"
+  },
+  {
+    "path": "api/services/integrations/registry.py",
+    "sha256": "266e0c206f4b483d7d73c4a3feb4f0bcfb3cba51a15f1ecd300b56a340a524a1"
+  },
+  {
+    "path": "api/services/integrations/tuner/__init__.py",
+    "sha256": "8f88689adc859bbd5355e31fcbe2a9fc227d652ddf00bb5d7bb2c9b88be5ce95"
+  },
+  {
+    "path": "api/services/integrations/tuner/client.py",
+    "sha256": "f4544705d9343f3d8bdf4d4cf7da0b720cd52eb76415d9b11a021b2575867f77"
+  },
+  {
+    "path": "api/services/integrations/tuner/collector.py",
+    "sha256": "9d01d1b291aacc8e2473c34d353381d3538a6139880346ad39dda2cd27ef068e"
+  },
+  {
+    "path": "api/services/integrations/tuner/completion.py",
+    "sha256": "21d40419449c1bbea4cd43667cb8ea933ec0ba0d1ac70471d435ed5b5df7d0d2"
+  },
+  {
+    "path": "api/services/integrations/tuner/node.py",
+    "sha256": "ed69a5b51fcb35d4897b669773908eb39d71520eba62ab67bbb3d3dd1e6009fb"
+  },
+  {
+    "path": "api/services/integrations/tuner/runtime.py",
+    "sha256": "31f8a739467c9f238bc000d78fa2497d7b5bf1ebb8a92c0bcc4852f811c1567b"
+  },
+  {
+    "path": "api/services/mps_service_key_client.py",
+    "sha256": "d7a49f16c772ec5593d8432e76624d0869f906cd492558bf1cd6269481d5eebc"
+  },
+  {
+    "path": "api/services/pipecat/__init__.py",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "api/services/pipecat/audio_config.py",
+    "sha256": "a007d5b38c63470ab32aa84939c7af5dd924374b50ac8aa20d4c8ddef9fa62b2"
+  },
+  {
+    "path": "api/services/pipecat/audio_file_cache.py",
+    "sha256": "275599bbf858685e1f7e44df606f75061e4bb376e5e16da1e7f97c6d0ea8797d"
+  },
+  {
+    "path": "api/services/pipecat/audio_mixer.py",
+    "sha256": "d9cb96deb8d3ef04f059fb9fa77c8a0a0b91c182d57e162b53314a593972e61b"
+  },
+  {
+    "path": "api/services/pipecat/audio_playback.py",
+    "sha256": "d35f2757381f0c8e04886e90b3e2024eedafdce9a0def8f410ea996aafe177e3"
+  },
+  {
+    "path": "api/services/pipecat/call_duration_config.py",
+    "sha256": "5cc40b4f9191da7615419308b0015bb17d6edfb181c452fc77d5bd00f09fb30e"
+  },
+  {
+    "path": "api/services/pipecat/event_handlers.py",
+    "sha256": "98722e6ed67f115cbbdfe944634d80ca9536476cefb8bf4b4bfe309ff31c7ae4"
+  },
+  {
+    "path": "api/services/pipecat/exceptions.py",
+    "sha256": "7096f6e7d37175403d32e18afc1eb79ee823b6f2377d53f908dc530a0bb0116c"
+  },
+  {
+    "path": "api/services/pipecat/in_memory_buffers.py",
+    "sha256": "38cc6d83c2fb0b4600a967f3d678be2a56c79286d0a40f6833c5518d782da3a5"
+  },
+  {
+    "path": "api/services/pipecat/minimax_tts.py",
+    "sha256": "232d797b3fa186285369346768b652c34db5f609df552e143489c3d82de1e1da"
+  },
+  {
+    "path": "api/services/pipecat/pipeline_builder.py",
+    "sha256": "8e7efdaa87e52640fe21d35d299061727c0eb8b43d360ddd083996608e70557e"
+  },
+  {
+    "path": "api/services/pipecat/pipeline_engine_callbacks_processor.py",
+    "sha256": "864f032f6bf5b6ab075e6ce8a3c78e961b9d1885bfcac8b95d6cfa492b68c615"
+  },
+  {
+    "path": "api/services/pipecat/pipeline_metrics_aggregator.py",
+    "sha256": "88799f28bf89eb23644d0c5b74fc5e18c950cadec06cbbf3421fcfea96a2d0d2"
+  },
+  {
+    "path": "api/services/pipecat/pre_call_fetch.py",
+    "sha256": "6d5d29dd961a164bc834cf4df58762599955ec1c1e9219b2cedca1b4a20e6760"
+  },
+  {
+    "path": "api/services/pipecat/realtime/__init__.py",
+    "sha256": "b53719b838ff107268aa8922b2b8e8b768ddc152b438f398a9899a41576beb84"
+  },
+  {
+    "path": "api/services/pipecat/realtime/azure_realtime.py",
+    "sha256": "8c8383074b07aea808a7bed4a4a38f9f69bce59eea80e5482a66efe2cd4a520a"
+  },
+  {
+    "path": "api/services/pipecat/realtime/gemini_live.py",
+    "sha256": "73c8d72a13102d1df437fbd254ee8c93463e1392fd74126dde89f94f128ff88e"
+  },
+  {
+    "path": "api/services/pipecat/realtime/gemini_live_vertex.py",
+    "sha256": "c0a53ce026bb6b4d39d5bbd063f98648026428fdb6b9b3b22392855d5b17f3f0"
+  },
+  {
+    "path": "api/services/pipecat/realtime/grok_realtime.py",
+    "sha256": "46df940cb960ebd9fc4270fd35fbcee01d324cee85e89f290a6ffbe22cb3e438"
+  },
+  {
+    "path": "api/services/pipecat/realtime/openai_realtime.py",
+    "sha256": "3b9124a8efacde6f59560979dee8d7e9be1790835a4cac0b590065f254c4ad97"
+  },
+  {
+    "path": "api/services/pipecat/realtime/ultravox_realtime.py",
+    "sha256": "5f890e52eef79fcab5f2796cc35f7686cce657fa4e3285a8cb637b324895b388"
+  },
+  {
+    "path": "api/services/pipecat/realtime_feedback_events.py",
+    "sha256": "c94992aa3d8f731499af6f943cc9d6c9333719de6fb7082961fdb61852224089"
+  },
+  {
+    "path": "api/services/pipecat/realtime_feedback_observer.py",
+    "sha256": "1e2f7e4390eeecd415c0f17e794054039d6660cfce7db4f7373bde0c024bad61"
+  },
+  {
+    "path": "api/services/pipecat/recording_audio_cache.py",
+    "sha256": "64aea8ca6a2b4164d7199e7f106f48c1bfb3cc9d9d01438a117377268238a116"
+  },
+  {
+    "path": "api/services/pipecat/recording_router_processor.py",
+    "sha256": "6cf0b03bdef616ccb56d559764eb0f657a95d035866251c4e8c252b78f28f304"
+  },
+  {
+    "path": "api/services/pipecat/run_pipeline.py",
+    "sha256": "874c644e597d7d5dfcad442829d2ecb9750341d35c9d158c70a28b92b041fe81"
+  },
+  {
+    "path": "api/services/pipecat/service_factory.py",
+    "sha256": "e8d9a5cbd2c151a3278af2c724f9108c5e00271887a5eeb0c01b6eb777806cdc"
+  },
+  {
+    "path": "api/services/pipecat/tracing_config.py",
+    "sha256": "1339ec50fbd5ff8a681e236b91cdecdda79a78b52c19d61a7fc4e9976cd65824"
+  },
+  {
+    "path": "api/services/pipecat/transport_params.py",
+    "sha256": "cb4e05fa09752f09bfc83ca457b6418ef7b5afc28a16f83b630cbbdcb520d40c"
+  },
+  {
+    "path": "api/services/pipecat/transport_setup.py",
+    "sha256": "1b8f771d969090fd5db3bd5b5b96263675f628647a2f85680d090a6762440a4d"
+  },
+  {
+    "path": "api/services/pipecat/turn_context.py",
+    "sha256": "bd29637d900cbdbdf241df718699f2dfdfa9e3d88642f15e9335cdab3a3ed278"
+  },
+  {
+    "path": "api/services/pipecat/worker_runner.py",
+    "sha256": "a72808535ab9db198b56e1a3414c898c104fc61b0529013c05b749a355d6d17b"
+  },
+  {
+    "path": "api/services/pipecat/ws_sender_registry.py",
+    "sha256": "3878c79467bcc947b6826448d931e2281d05bc929c56163143e047e5afeb1848"
+  },
+  {
+    "path": "api/services/posthog_client.py",
+    "sha256": "e72ea81384734bf8964774372953eb2c6eb0c46eca20250860dbf632b428c80f"
+  },
+  {
+    "path": "api/services/pricing/README.md",
+    "sha256": "10e93c082bdad40655c44d6b593ac6e77741a0b76cb496565225a3c0584d9abe"
+  },
+  {
+    "path": "api/services/pricing/__init__.py",
+    "sha256": "b89c934ec295a5fa75564a4a641a534a74eb3c4f7f3f667e209844c1098ce888"
+  },
+  {
+    "path": "api/services/pricing/cost_calculator.py",
+    "sha256": "9dc3d6cb5192bf3f4856e54c7ffa9e67372750a244ee45eda467bbbc19574461"
+  },
+  {
+    "path": "api/services/pricing/embeddings.py",
+    "sha256": "9a7c9591f89b53c68a2a7a2f59219ffa1c2b1114f429f514a6bc40150ba8234a"
+  },
+  {
+    "path": "api/services/pricing/llm.py",
+    "sha256": "9fe5d76d85361dd12cad0485632f5410abfaf410c4630456ccef616548d3681d"
+  },
+  {
+    "path": "api/services/pricing/models.py",
+    "sha256": "817b5b443e94dccc6d2b1159ee320baa69eb45de58d32511608c9d0d6f0825eb"
+  },
+  {
+    "path": "api/services/pricing/registry.py",
+    "sha256": "934cabdee022a0ff6ca1733cad99b4bed58735ccdb9c66f6c7eb5f356b2e2b32"
+  },
+  {
+    "path": "api/services/pricing/run_usage_response.py",
+    "sha256": "16a108249fabe7738bdacafa0e961cae68700cef3ba9b31bcc545e83c99ddaec"
+  },
+  {
+    "path": "api/services/pricing/stt.py",
+    "sha256": "37f6a41b2e5245c79d9b8750f794dd2be56f2c1a819fab313e60926711acc2a9"
+  },
+  {
+    "path": "api/services/pricing/tts.py",
+    "sha256": "8ca11b747f5d140116e0d68b1fc55f752673f0b81c43b5fd3ab989339dc56520"
+  },
+  {
+    "path": "api/services/pricing/workflow_run_cost.py",
+    "sha256": "8a38e6bb53a3ed4280eee4bb463cceacefc7c6a76c76b29bedb22ac86bb442c8"
+  },
+  {
+    "path": "api/services/quota_service.py",
+    "sha256": "e424d252932e20dac6892a313c75d3f4d184232dd207e0e0dab903a095aa0982"
+  },
+  {
+    "path": "api/services/reports/__init__.py",
+    "sha256": "23939fa11d6c87c254a66f0d1cb01e393b353a7097fd8bc1117371dcbc9a3722"
+  },
+  {
+    "path": "api/services/reports/daily_report.py",
+    "sha256": "a6cdaf793b881c4abcb8be6c9dda89a1928b843e110367f1ff8b7f4e9a687ddf"
+  },
+  {
+    "path": "api/services/reports/run_report.py",
+    "sha256": "02b1f0d308fc51c60f29240fe5bca1c0fd66d0d7748ad3f95928dd9fe6cc9522"
+  },
+  {
+    "path": "api/services/storage.py",
+    "sha256": "2777342bac55f9ee6241d63941d8ac7465d6fff947bbbfca981a998611396b6e"
+  },
+  {
+    "path": "api/services/telephony/AGENTS.md",
+    "sha256": "25f691a2ad8274d78b11a2bc7251d0d67b687459b080625cee1fcb2d60a4caf1"
+  },
+  {
+    "path": "api/services/telephony/README.md",
+    "sha256": "4f4b662ccb6c616b6cd1e95a999c9edb5577b823cf7b21c8b1d206c4ba810323"
+  },
+  {
+    "path": "api/services/telephony/__init__.py",
+    "sha256": "8d80231dbace7e3d564232bbf2782cfbbee3ad9fc4c1147fa66b37c20ae44d9d"
+  },
+  {
+    "path": "api/services/telephony/ari_manager.py",
+    "sha256": "e23476e6a235e93c052a714ba11909e80fe6cb3273c70ce90afe32662ef050e4"
+  },
+  {
+    "path": "api/services/telephony/base.py",
+    "sha256": "6b129abd5ef210aef1915bdfb06adbdb7a806f24e0214a8be4e2bfd6933ca1f0"
+  },
+  {
+    "path": "api/services/telephony/call_transfer_manager.py",
+    "sha256": "16a56039e23d6a26ae56cc6a17b175d4be0867b3ef68f12f39e9a6752bf2b63e"
+  },
+  {
+    "path": "api/services/telephony/factory.py",
+    "sha256": "f4c08189d262a631b83d9acc637cf4216ac831cb8f13291f9e6e09ed2f06af9d"
+  },
+  {
+    "path": "api/services/telephony/providers/AGENTS.md",
+    "sha256": "14c7cdd445b9d0627adfc0ffa050d56bbb3edcddb37b277d61a5c462e920c5eb"
+  },
+  {
+    "path": "api/services/telephony/providers/CLAUDE.md",
+    "sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"
+  },
+  {
+    "path": "api/services/telephony/providers/__init__.py",
+    "sha256": "a5ba4d56171e5d2b58649b67a5d0780cb6f2689c2048bc78a2e2204afcd41a77"
+  },
+  {
+    "path": "api/services/telephony/providers/ari/__init__.py",
+    "sha256": "e8607be0ad0bb30842fbfe4e2f7969d556b360a4093fa6aa900230b444a43549"
+  },
+  {
+    "path": "api/services/telephony/providers/ari/config.py",
+    "sha256": "753b49084bb92f04aa1128e7e16a55eb5b62806b749e58e5bda6a6438a1d0b0d"
+  },
+  {
+    "path": "api/services/telephony/providers/ari/provider.py",
+    "sha256": "7cb2da7cf5282c28057d84984380820df29c2170b266464813b9404f54f39618"
+  },
+  {
+    "path": "api/services/telephony/providers/ari/serializers.py",
+    "sha256": "b45336aba41ca65791d5fbe29b25d6ffb1556716d5977bdf045738b111b7b0c9"
+  },
+  {
+    "path": "api/services/telephony/providers/ari/strategies.py",
+    "sha256": "c65853e16b4d7b40a417f91bd4b4902349ef18a20a047af054d4a55339f2ef20"
+  },
+  {
+    "path": "api/services/telephony/providers/ari/transport.py",
+    "sha256": "b31f4dc523bd8d57c8a87b85861f1ebfd0867a9f440b7052e669d252e54065e0"
+  },
+  {
+    "path": "api/services/telephony/providers/cloudonix/__init__.py",
+    "sha256": "4046b120f9f8f53d6881a5df775cab1e41268afe84e4955de8a72cab92f51fe3"
+  },
+  {
+    "path": "api/services/telephony/providers/cloudonix/config.py",
+    "sha256": "d46b009e88063a40d239ece226d7afe0cc3e52770a0cbc9b2b20bb228f2fa7ab"
+  },
+  {
+    "path": "api/services/telephony/providers/cloudonix/provider.py",
+    "sha256": "db6714aef6559f87fbf804fe72a8881c8342cf5f07c89cece2c204099e8f49ed"
+  },
+  {
+    "path": "api/services/telephony/providers/cloudonix/routes.py",
+    "sha256": "81630308cc5e1efd73a6610c853f6b45c763df7b467beba51d985116a7e50b21"
+  },
+  {
+    "path": "api/services/telephony/providers/cloudonix/serializers.py",
+    "sha256": "66dc920deb80c39f82e1f9bc68288ceff4cccf6c727ba5995df09cc315e7fcc7"
+  },
+  {
+    "path": "api/services/telephony/providers/cloudonix/strategies.py",
+    "sha256": "207db95dd9296f0e21f348a70408d07c653fb307823afbf30ce86fe2a4008c04"
+  },
+  {
+    "path": "api/services/telephony/providers/cloudonix/transport.py",
+    "sha256": "2397ce9420327a92a7b8ca0a26e744be905435fc852262d597c79897ca1b9c6f"
+  },
+  {
+    "path": "api/services/telephony/providers/plivo/__init__.py",
+    "sha256": "0f326c7f0a2caec369f90683e09b75591e8ad53f809f04f76d058b36c047a84e"
+  },
+  {
+    "path": "api/services/telephony/providers/plivo/config.py",
+    "sha256": "701422cfd69085701ef813aaf220385f5d761e10d380485ece27978d1979b580"
+  },
+  {
+    "path": "api/services/telephony/providers/plivo/provider.py",
+    "sha256": "74d18c6e3d1fc2055d44114cb9010f7c86f54f7fc1a65309e04125944e8d73c7"
+  },
+  {
+    "path": "api/services/telephony/providers/plivo/routes.py",
+    "sha256": "d9ab40d14e8de8a252d1c616020de2ba3ce6f2225225b7ebef1deca40f135628"
+  },
+  {
+    "path": "api/services/telephony/providers/plivo/serializers.py",
+    "sha256": "074ef06789f0dcb801635f06c43c41f4048ade0f9492097286a57dd81222bf0e"
+  },
+  {
+    "path": "api/services/telephony/providers/plivo/transport.py",
+    "sha256": "4fcb6a973a0b3c92935c238755de1d4505fd9c4dc8f12173b450ab31487b61e1"
+  },
+  {
+    "path": "api/services/telephony/providers/telnyx/__init__.py",
+    "sha256": "365b373aad9b4be5704fb8211a01f86bdca7eab82ced5d6576fcedd021df23a7"
+  },
+  {
+    "path": "api/services/telephony/providers/telnyx/config.py",
+    "sha256": "77bc9f038332b0b32cf8d9c2926b7559d522b726632d83db69cb07f02a5813d0"
+  },
+  {
+    "path": "api/services/telephony/providers/telnyx/provider.py",
+    "sha256": "583539c0ca0b863a6fc3e58d31b5d7490825f97162975d0b2f1d3e38db101df3"
+  },
+  {
+    "path": "api/services/telephony/providers/telnyx/routes.py",
+    "sha256": "4df2432cde9fc0e06487993216d0cc2f3a8d36f99c70ab503510a3ae91c44204"
+  },
+  {
+    "path": "api/services/telephony/providers/telnyx/serializers.py",
+    "sha256": "8590965680c5cb040448cc16c1cf84e44fb46f4ec3b16eff22a1d204e7190e5a"
+  },
+  {
+    "path": "api/services/telephony/providers/telnyx/strategies.py",
+    "sha256": "9d7ae736592504ed3523cb1c3f0301fa574bf3dcbbada764f50d8a21b6594fe6"
+  },
+  {
+    "path": "api/services/telephony/providers/telnyx/transport.py",
+    "sha256": "093c173baf279cf6a70f1454c2ff87fb7c5522049e3dfc48e0c5824fa74737ca"
+  },
+  {
+    "path": "api/services/telephony/providers/twilio/__init__.py",
+    "sha256": "febea23549bb7ff2c4012ca886718af37349eca2c3d49c8b0fe292b6854e8173"
+  },
+  {
+    "path": "api/services/telephony/providers/twilio/config.py",
+    "sha256": "eae27c8b5df1247119fe2a14e711b0b4f2d9607d45dc3cc27691d3f2edfab85d"
+  },
+  {
+    "path": "api/services/telephony/providers/twilio/provider.py",
+    "sha256": "b1231557b861bbf5e4fee6623aeb1a2de96009ce1d4174154cb3786f8895845d"
+  },
+  {
+    "path": "api/services/telephony/providers/twilio/routes.py",
+    "sha256": "7aa589c77b5c44d6a536ae9ed411b29b45a9800aa568f356111b1d9df16ec489"
+  },
+  {
+    "path": "api/services/telephony/providers/twilio/serializers.py",
+    "sha256": "8602f90ea6c6c7256f6f5d15859ce293749120522c173a7842467339f5bd408e"
+  },
+  {
+    "path": "api/services/telephony/providers/twilio/strategies.py",
+    "sha256": "d44e369e8b9cf013e4066b9a1ef7c4f2f9cee4a761378bc64602b2d2abc8a632"
+  },
+  {
+    "path": "api/services/telephony/providers/twilio/transport.py",
+    "sha256": "147f5467d577d1f9795763cabb49851f57942eadda6a1613f1cec95a36ff6547"
+  },
+  {
+    "path": "api/services/telephony/providers/vobiz/__init__.py",
+    "sha256": "0df8894a2f5f047cd54706637bd0595524a873b382c689408e9ed0e9397cc294"
+  },
+  {
+    "path": "api/services/telephony/providers/vobiz/config.py",
+    "sha256": "4212b1f088f9b11dd6f6ff97ad01f11ea99e7ba08387192824b7b5fd136fa70d"
+  },
+  {
+    "path": "api/services/telephony/providers/vobiz/provider.py",
+    "sha256": "ddffbbf98e57b0bee376d9f6464d432215d2c3dbc896eaa5944c8205632536dd"
+  },
+  {
+    "path": "api/services/telephony/providers/vobiz/routes.py",
+    "sha256": "0a8f5601d2c758a909a35af13f9416f8000d0ce21a012813545a194c2e0e9da3"
+  },
+  {
+    "path": "api/services/telephony/providers/vobiz/serializers.py",
+    "sha256": "89ba6a9ddbeb2e17374cb87cafa49bc77fcd624882df3e69bdcb2798a7c9524c"
+  },
+  {
+    "path": "api/services/telephony/providers/vobiz/transport.py",
+    "sha256": "57a1abb41c89e1b490cd283f1e9e25e547a1347f847b89bdf3f5a08cfef76fd5"
+  },
+  {
+    "path": "api/services/telephony/providers/vonage/__init__.py",
+    "sha256": "06bcaad66f583b14b81de8508e81c2edbbd5e2adba200d3520fc2529cc8b3013"
+  },
+  {
+    "path": "api/services/telephony/providers/vonage/config.py",
+    "sha256": "7859eaab7a29a5df218f3e3a746c9752be11c0902bb354bdf89cc555fa72f0fe"
+  },
+  {
+    "path": "api/services/telephony/providers/vonage/provider.py",
+    "sha256": "4eb34ff8208916000fe1d06f62bb7d475b261cb9c0f879d5d55b6eb009c24437"
+  },
+  {
+    "path": "api/services/telephony/providers/vonage/routes.py",
+    "sha256": "30cdd126b9c5e1325f19e6ea80c25e6ee95cf6ab322d142c6cca2fd7e7ab244e"
+  },
+  {
+    "path": "api/services/telephony/providers/vonage/serializers.py",
+    "sha256": "a5cd1e7ada3c921655d8be33938ed43c93f09386a0f21ae354e40617dc740ded"
+  },
+  {
+    "path": "api/services/telephony/providers/vonage/transport.py",
+    "sha256": "bcca30ef56a95617b945562e78ab834da0b97c0c2db4ee24d857f63754cd516f"
+  },
+  {
+    "path": "api/services/telephony/registry.py",
+    "sha256": "a9dcb70be9a20a03d0eac1f0312aeee14862adb95d0b8909df78cee606ba38e9"
+  },
+  {
+    "path": "api/services/telephony/status_processor.py",
+    "sha256": "59004e5f07e9525bc738f33c180fdaeefd7a19acbb339485ae8c3124b618785a"
+  },
+  {
+    "path": "api/services/telephony/transfer_event_protocol.py",
+    "sha256": "402f2ee97181d69c5c04c8f838cc7cc223adf6ab9c68320931e4c79cd1d3a6d2"
+  },
+  {
+    "path": "api/services/tool_management.py",
+    "sha256": "683d811c4e56f8342726b2697351022218e50d2124f58021e179112231fd09a7"
+  },
+  {
+    "path": "api/services/voice_prompting_guide/__init__.py",
+    "sha256": "c27d7887b9341abc57c0a876e09a21882de1cb5a39c177bd43cb8997e0757d93"
+  },
+  {
+    "path": "api/services/voice_prompting_guide/_base.py",
+    "sha256": "7b90cfce2dfd829b0dbc7f5fe5e34f4429d9b7556bb98672444dc6f5bd086917"
+  },
+  {
+    "path": "api/services/voice_prompting_guide/_registry.py",
+    "sha256": "85f60dc1e5d247b854966110bbcb4ee239eb3599fa2bee57d7d6bdceeb1568ac"
+  },
+  {
+    "path": "api/services/voice_prompting_guide/topics/__init__.py",
+    "sha256": "472c14856deb5d73392840def816d0cbd4de53110997b7facf3627b6f82da167"
+  },
+  {
+    "path": "api/services/voice_prompting_guide/topics/call_flow_design.py",
+    "sha256": "eaca22e750fb024784fc2e9c20c9f92de821c0be989d62597eede28aa9286c76"
+  },
+  {
+    "path": "api/services/voice_prompting_guide/topics/disfluencies.py",
+    "sha256": "28fac94dcd176acc500035a37c7f6f35e6d9b9d21fe8f66437f656e28615e762"
+  },
+  {
+    "path": "api/services/voice_prompting_guide/topics/end_call_logic.py",
+    "sha256": "efe65e5dcb0f829df1f9cf86bb6618146597c81f6be0eeabc2f43de1aa97c869"
+  },
+  {
+    "path": "api/services/voice_prompting_guide/topics/guardrails.py",
+    "sha256": "ea493cb052deab701e4baf2a0851ba9ac352b179b8a19503f3cdf56537735dbb"
+  },
+  {
+    "path": "api/services/voice_prompting_guide/topics/instruction_collision.py",
+    "sha256": "a451e9bd56c31179127025a40f97ab285baaa5729b6e8b6a9f806ec36944b56c"
+  },
+  {
+    "path": "api/services/voice_prompting_guide/topics/language_and_format.py",
+    "sha256": "816ccc2e16c617f386897fcca90fa4eedee64f94103243a74936967ed81c9ed5"
+  },
+  {
+    "path": "api/services/voice_prompting_guide/topics/numbers_dates_money.py",
+    "sha256": "3a991a4993b53091c0d58b7796af23d1197387e6b9ffe9eb74fcae17eba93188"
+  },
+  {
+    "path": "api/services/voice_prompting_guide/topics/persona_and_identity_lock.py",
+    "sha256": "f81b08b521d65763313b9a8fec0a0b6afeecefc1ed57b9a072d378cb35e65191"
+  },
+  {
+    "path": "api/services/voice_prompting_guide/topics/readback_and_extraction.py",
+    "sha256": "59bbabd92cebc12ab1896a7e3151a667b481cfd94dba4e355f9d429eda20fcab"
+  },
+  {
+    "path": "api/services/voice_prompting_guide/topics/response_style.py",
+    "sha256": "baa9c47de838de1ca665ade1d96c85251ab1ac5b401cf8c5bc75d73dce34a2bf"
+  },
+  {
+    "path": "api/services/voice_prompting_guide/topics/speech_handling.py",
+    "sha256": "13d450f204044aa968ddcfd036e1b3f5bd1dbbae3e86f06ba2fce479086962d6"
+  },
+  {
+    "path": "api/services/voice_prompting_guide/topics/success_criteria.py",
+    "sha256": "572d011224df43b30588b3d949a4b7e6dca841fe68729f7931f006acfacc8191"
+  },
+  {
+    "path": "api/services/voice_prompting_guide/topics/tool_calls.py",
+    "sha256": "0a0237444bf348051f6731e003a39e6365148aaafe6e01ca9872fa4e217f80f5"
+  },
+  {
+    "path": "api/services/voice_prompting_guide/topics/turn_taking.py",
+    "sha256": "68770927ff196c38c0beefe5aac83af46a182cb4c634fada5a9ffa5fee5ef904"
+  },
+  {
+    "path": "api/services/worker_sync/__init__.py",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "api/services/worker_sync/manager.py",
+    "sha256": "6f8b9c0c0364efd364a53db4f614ba7ec5a112f10dd9189581a30b209544abae"
+  },
+  {
+    "path": "api/services/worker_sync/protocol.py",
+    "sha256": "18128034e11b7182eab7ad96def2b05afd817584cb9bcd076fe271f18e63d0d6"
+  },
+  {
+    "path": "api/services/workflow/__init__.py",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "api/services/workflow/audit.py",
+    "sha256": "61ddcefec837663e83d6774f13b0b3c5d1de342ffb52d8cafecb58fe4784bbc4"
+  },
+  {
+    "path": "api/services/workflow/disposition_mapper.py",
+    "sha256": "f117f47bdae2b56a672fd41f0f5b47dfbe88465e784e9ce00e1e23423060576e"
+  },
+  {
+    "path": "api/services/workflow/dto.py",
+    "sha256": "28526a840ed2db8ccb9241279d74915333ee05e516dd4f591f6c976f6f0b09f7"
+  },
+  {
+    "path": "api/services/workflow/duplicate.py",
+    "sha256": "f67d5c033eb4c55dba9d0edaeec2a58a754c6e20d2184d014ba5aa994fe3835f"
+  },
+  {
+    "path": "api/services/workflow/errors.py",
+    "sha256": "f7a2ca63e996b64598872e0a663abccb0c0c7b6d7fa90e6845c3d58565c780dd"
+  },
+  {
+    "path": "api/services/workflow/layout.py",
+    "sha256": "cf7f18625d062eb9dbf6d8728c634534673aea2825838ab6cad4cfba6c2c3d17"
+  },
+  {
+    "path": "api/services/workflow/mcp_tool_session.py",
+    "sha256": "39597168575ebd66b016515840ef0ae39afbaf16de9de8f988c5db30abb1d89a"
+  },
+  {
+    "path": "api/services/workflow/node_data.py",
+    "sha256": "d735e3a6b35b448d6ee01787cfbe57db4a3248ffec1af05d81d10b81a8af5352"
+  },
+  {
+    "path": "api/services/workflow/node_specs/__init__.py",
+    "sha256": "d3f1286cfd6741a73d897c4a0d6d519388d0955d3ddc63b39ca6aeee16baaaf3"
+  },
+  {
+    "path": "api/services/workflow/node_specs/__main__.py",
+    "sha256": "96a4969109b9d2f4ab68f6ff5f59edd55cb30f2d5eff24faa083eb074c161620"
+  },
+  {
+    "path": "api/services/workflow/node_specs/_base.py",
+    "sha256": "56409302b601b4f2ad44abd1ff45760c7758df5e3e305e52f5ba629b66c44b83"
+  },
+  {
+    "path": "api/services/workflow/node_specs/constants.py",
+    "sha256": "6946be2ad81585de87b4bd48b96a5a5bd1cba4f387244b2615a4c5448a57d24f"
+  },
+  {
+    "path": "api/services/workflow/node_specs/display_options_fixtures.json",
+    "sha256": "2ba255a046c195e4218e515ca079db4b2ebbb150980c4107dd397328ad912c26"
+  },
+  {
+    "path": "api/services/workflow/node_specs/model_spec.py",
+    "sha256": "e2ee53db22c44abc07991a9bce4a3074817f10e8e564182393cfcfc967339063"
+  },
+  {
+    "path": "api/services/workflow/pipecat_engine.py",
+    "sha256": "c97880c6ed79b5bc469e21279d53a0f5062475a43934b5602cb0bfd3c690e412"
+  },
+  {
+    "path": "api/services/workflow/pipecat_engine_callbacks.py",
+    "sha256": "5c8c68a795a2c0d64b3a2c5ca1af7647cec6515b197d0c01794f14da66ef005f"
+  },
+  {
+    "path": "api/services/workflow/pipecat_engine_context_composer.py",
+    "sha256": "b26f2e1d082b1a3059d9e0b0b812dd2b7793bba47e3135671042c873f3c5379a"
+  },
+  {
+    "path": "api/services/workflow/pipecat_engine_context_summarizer.py",
+    "sha256": "5d57a8e6e1a2edd56608109acec126256d873df3dda3f31a571da43a434db4f3"
+  },
+  {
+    "path": "api/services/workflow/pipecat_engine_custom_tools.py",
+    "sha256": "bb5642b3a784e7d316d35adfeddd9fb2af760d8515bbeb153b81346bdcd328b6"
+  },
+  {
+    "path": "api/services/workflow/pipecat_engine_variable_extractor.py",
+    "sha256": "07041bfc405d7e5beac9eb304e830bad612d47880b1d78d0c0502d3a9228b3c3"
+  },
+  {
+    "path": "api/services/workflow/qa/__init__.py",
+    "sha256": "2efa269dbf2750af2b3c0b58e72298ade74a266e4b8a4c8651b7ab9f279a4753"
+  },
+  {
+    "path": "api/services/workflow/qa/analysis.py",
+    "sha256": "ce1e2ab50937b4023620fa88ed5c192dd258c889353ef2599c3fb6886a3c01dd"
+  },
+  {
+    "path": "api/services/workflow/qa/conversation.py",
+    "sha256": "389f11a16ebb2c42e2aface2bf0cff738e73048e0c0b503650414290e60dd99e"
+  },
+  {
+    "path": "api/services/workflow/qa/llm_config.py",
+    "sha256": "942a43e65ec68f59f1664d041f4e7c8812bd6f5e0117f80e48fde0d99bab039c"
+  },
+  {
+    "path": "api/services/workflow/qa/metrics.py",
+    "sha256": "c4888cf0338dd45b9485cc8dd57a02f7d895b568882eb766c73cb7088b572774"
+  },
+  {
+    "path": "api/services/workflow/qa/node_summary.py",
+    "sha256": "6b79dc5756cc70a3daa119be75ec847b609fd8d5f8ebb15fb26e7b8e675f1ffb"
+  },
+  {
+    "path": "api/services/workflow/qa/tracing.py",
+    "sha256": "6fb4d3d592906cf87cab63691132a1b2b9ebce8c8a4cfb2cb291eec3cfb2841e"
+  },
+  {
+    "path": "api/services/workflow/text_chat_logs.py",
+    "sha256": "77a843abbe4891a0fe76c12389cf856420365168548ae026800c749b73d2ad20"
+  },
+  {
+    "path": "api/services/workflow/text_chat_runner.py",
+    "sha256": "cab8ea0b5c65c2c3aa6693bfc42a8e31fc4648cae436744e2a762c0f80253d01"
+  },
+  {
+    "path": "api/services/workflow/text_chat_session_service.py",
+    "sha256": "a6c9bb0f6e934a0e154af4fcc5ff4988045fd6de3cfbfb0dd0a21bc4b93da4d1"
+  },
+  {
+    "path": "api/services/workflow/tools/__init__.py",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "api/services/workflow/tools/calculator.py",
+    "sha256": "cfc5eb110f5d231acbff65774b686ba0f473e5ae8c8103ece91bffa88fd2f88e"
+  },
+  {
+    "path": "api/services/workflow/tools/custom_tool.py",
+    "sha256": "ca45f18b84505dbe80737d7225c0335933d7b60e715365e23f7e4e53e47c8bb4"
+  },
+  {
+    "path": "api/services/workflow/tools/knowledge_base.py",
+    "sha256": "b84257a615eae9292001a2db0a95deddadfe67cca3a428c9ed6948808f11f28b"
+  },
+  {
+    "path": "api/services/workflow/tools/mcp_tool.py",
+    "sha256": "060e59062a85a1236f0e084830244603839dc8cd75fb6e8271f72e11023a5ded"
+  },
+  {
+    "path": "api/services/workflow/tools/timezone.py",
+    "sha256": "7f034f620ebdbd6d33f84dd0f0853b18867d1677017a10f19fd3c86d422ec3fb"
+  },
+  {
+    "path": "api/services/workflow/trigger_paths.py",
+    "sha256": "38c62e7d0c99bb6fd530604712aa6768e69fd20ea3df28b117b496f099490106"
+  },
+  {
+    "path": "api/services/workflow/workflow_graph.py",
+    "sha256": "2b9200965cf80c4b23401a9117f7f606679c13b5d6f9814f06a2cad71396b336"
+  },
+  {
+    "path": "api/tasks/__init__.py",
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+  },
+  {
+    "path": "api/tasks/arq.py",
+    "sha256": "c93aaf06bbe94d322a8bac348b64553861628dcf4b5834ef10b401a39f43e648"
+  },
+  {
+    "path": "api/tasks/campaign_tasks.py",
+    "sha256": "1c40160c7ed80d3e90ab48ab3a3b159fb05d0fcac9a63f75919cb43abbe8ff20"
+  },
+  {
+    "path": "api/tasks/function_names.py",
+    "sha256": "ad4a84635f1d5d716663f87f99ad422bb2ea48080606dc64f2c62a5ad6468d09"
+  },
+  {
+    "path": "api/tasks/knowledge_base_processing.py",
+    "sha256": "b331982f28853e1aef788d4dc6cc3b27e3ffca37c1040f914e47d82d19f226b7"
+  },
+  {
+    "path": "api/tasks/run_integrations.py",
+    "sha256": "edc315d6fbf4702d9bfd8f5173e13d1d71a1965157eccd60f142842056df2ae8"
+  },
+  {
+    "path": "api/tasks/s3_upload.py",
+    "sha256": "4b7e78a18017befd59f2db2bb3812aa1d87de2ed1535be68fce80caeff07736a"
+  },
+  {
+    "path": "api/tests/__init__.py",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "api/tests/conftest.py",
+    "sha256": "a662082631246d1c60020fa44245e510fb6b4e98f1e0af6748e3f948a0b91dd7"
+  },
+  {
+    "path": "api/tests/dto_fixtures/bad_edge_into_start.json",
+    "sha256": "e07de92ca1ce25f5f657fe8dd58c5ede84dceeb21bde1aa160fe549df69152ca"
+  },
+  {
+    "path": "api/tests/dto_fixtures/bad_edge_into_webhook.json",
+    "sha256": "51658db3be98ef87298c515190999b552265787a74bed53a9393b2d76bf4138f"
+  },
+  {
+    "path": "api/tests/dto_fixtures/bad_edge_out_of_globalnode.json",
+    "sha256": "7a4b057cd7867da9ed76c2b1d25faf632394202df81d15ea93b5f33a53c961b3"
+  },
+  {
+    "path": "api/tests/dto_fixtures/bad_edge_out_of_webhook.json",
+    "sha256": "fea610fe0a94aa87eafe0f8ae9a3a8ac374c6b433c8506a84cccaa4dbb71b117"
+  },
+  {
+    "path": "api/tests/dto_fixtures/bad_edge_source_missing.json",
+    "sha256": "5bb3b8682affcd8a2c147cc152393cc56737d674a5376d3c54c47107bdc8b28d"
+  },
+  {
+    "path": "api/tests/dto_fixtures/bad_edge_target_missing.json",
+    "sha256": "ff80c437c0d60396eb76c5e2a0f4266adefc783964cd7e2f22dd2f36a42c4c14"
+  },
+  {
+    "path": "api/tests/dto_fixtures/clean.json",
+    "sha256": "f5c33205dd3ab29983f098c43cf27d7cc67674d84fb448d9317ab644c566c1c6"
+  },
+  {
+    "path": "api/tests/dto_fixtures/multiple_start_nodes.json",
+    "sha256": "b290100aaf006285fa40cdfb4ec7ee59291d736eb03f4d5294241fb619315713"
+  },
+  {
+    "path": "api/tests/dto_fixtures/no_start_node.json",
+    "sha256": "1991d62ecfb00e3e8e710713ec98dc015d93228ae679e95ca1d27090bdd7312b"
+  },
+  {
+    "path": "api/tests/dto_fixtures/sample_branching_workflow.json",
+    "sha256": "810c1e7330bd8945e87581c333394f993c6af729c35ae261a6aaa0160a32b8c7"
+  },
+  {
+    "path": "api/tests/dto_fixtures/start_only.json",
+    "sha256": "92616239958084a410f98436d8102863be2f6781a6fb813cf5d0b8f75da1acd4"
+  },
+  {
+    "path": "api/tests/fixtures/game_companion_landing_supercruise_v1.json",
+    "sha256": "67156bea045f0da15fdcff13e0e92a07bf451813820c45ebb1e828472d539a50"
+  },
+  {
+    "path": "api/tests/integrations/__init__.py",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "api/tests/integrations/_run_pipeline_helpers.py",
+    "sha256": "60ba8493011083d196e2be84ab299f032f4df619850a3db1e3a61d83e63beab6"
+  },
+  {
+    "path": "api/tests/integrations/test_run_pipeline.py",
+    "sha256": "f5d2d7075440eff99694cda0d221b9fcd94f9d7b6bb9d6d5cae2156bd4154be4"
+  },
+  {
+    "path": "api/tests/integrations/test_run_pipeline_text_greeting.py",
+    "sha256": "22455cadff3ef2515b5cbd8b20e8cea05f083b34607ad2c74fcfaf3f91074420"
+  },
+  {
+    "path": "api/tests/support/__init__.py",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "api/tests/support/mcp_mock_server.py",
+    "sha256": "f1cf4d30bd436ad073bd4026e7a865067f8fd44228270e619143b90cb6c5799d"
+  },
+  {
+    "path": "api/tests/telephony/plivo/test_routes.py",
+    "sha256": "cd7c2b4f8d354ba3b734c3f911730a22c1d5c44523bec40bdd47087f261deff5"
+  },
+  {
+    "path": "api/tests/telephony/telnyx/__init__.py",
+    "sha256": "ec0185f299651aedae5e0239bd3c5bcd6d3ba97fa04a5263aa385adac7577468"
+  },
+  {
+    "path": "api/tests/telephony/telnyx/test_provider.py",
+    "sha256": "c56bca0cdeafc8f9da42dc43f35ac72b9e14587f94105586416c2118548da164"
+  },
+  {
+    "path": "api/tests/telephony/test_call_transfer_manager.py",
+    "sha256": "10a608af30cfcd96c0c91a80119f09c34aacff4471f243ab895b63e3daacea27"
+  },
+  {
+    "path": "api/tests/telephony/twilio/test_routes.py",
+    "sha256": "1ec34b76de588967f5da5e8e8796f7d624f4973fab80cc706329ced9c77e6433"
+  },
+  {
+    "path": "api/tests/telephony/vobiz/test_routes.py",
+    "sha256": "eb320bc715e3adcd27ba65cc3047547999d293b1a868403a3883d58af5199402"
+  },
+  {
+    "path": "api/tests/test_add_call_disposition_code.py",
+    "sha256": "d5b2a8cd63b2ae784b89011ce50f966eeb5b56ebd2f27b468b5140252e0170aa"
+  },
+  {
+    "path": "api/tests/test_aggregation_fix.py",
+    "sha256": "df5221fda7f4dd2d7a2f652e4df89faeae36572a95cc961fe5dec5e4f7815ced"
+  },
+  {
+    "path": "api/tests/test_audio_config.py",
+    "sha256": "99493ef7d63050fbdfd4c0b5d2983586e9b9bdb9d4a8a65a0b184d85b4a80448"
+  },
+  {
+    "path": "api/tests/test_azure_speech_service_factory.py",
+    "sha256": "f6f1fcc6552087392952cdff575d4a5e25712d8dad2157f045bb32badbccdd5d"
+  },
+  {
+    "path": "api/tests/test_call_duration_config.py",
+    "sha256": "010a8ffabf837135c5b7604994fc3392a255d28b880c9ece50e0fcd90980892f"
+  },
+  {
+    "path": "api/tests/test_camb_tts_integration.py",
+    "sha256": "4cfb2c657c49281b255aa01b00af0f3d59a2a8f8164e721e0f8d402ecd87559f"
+  },
+  {
+    "path": "api/tests/test_campaign_call_dispatcher.py",
+    "sha256": "93a2c5a362bbd4ad49246678b93d7718c1efceed3974ea3c126bfc93e6efefe8"
+  },
+  {
+    "path": "api/tests/test_campaign_tasks.py",
+    "sha256": "606b110f8d4d004ecc389ec57a258900af03c16b211a96ad108a0f6b93398690"
+  },
+  {
+    "path": "api/tests/test_circuit_breaker.py",
+    "sha256": "c7df4593ec719298d0a4aff422acf25c1e7493a9a3fffd8f6490ebe522033cec"
+  },
+  {
+    "path": "api/tests/test_cost_calculator.py",
+    "sha256": "3a44a599e5609d628fdd7b9a60761f895ce90974c418b3da1975f424f09f67d4"
+  },
+  {
+    "path": "api/tests/test_custom_tools.py",
+    "sha256": "5e966f3ac5e4818f9ff368502402a15cfe427a98c905b29d68019cdca0f18af1"
+  },
+  {
+    "path": "api/tests/test_custom_tools_context_integration.py",
+    "sha256": "ca975f08bbce52a604b1fc9820df0dd24378b1c274af12b04a8a692a61cfdeed"
+  },
+  {
+    "path": "api/tests/test_display_options_evaluator.py",
+    "sha256": "1c8f6355141c23e668a1331599a8b01d292eb4483f8dfe0b6368807ea860de12"
+  },
+  {
+    "path": "api/tests/test_dograh_sdk.py",
+    "sha256": "5d62cfc6ea3f81d2ba740733d36748643e42e30fb2f7768429c7d6b4d6983e87"
+  },
+  {
+    "path": "api/tests/test_dograh_sdk_typed.py",
+    "sha256": "fa9cb4db5b0fef89fc51daa968e21979ae92c40d4b3d170ae7981c025452ede2"
+  },
+  {
+    "path": "api/tests/test_dto.py",
+    "sha256": "89a83c343e010ba03a75c2b37049c5aca2c09e26140229fab54eb6e2caea450c"
+  },
+  {
+    "path": "api/tests/test_from_number_pool_isolation.py",
+    "sha256": "52650171c8efc9a6b4b4efdba792c82c6030ba4d06a688b9b12a861240f644e9"
+  },
+  {
+    "path": "api/tests/test_game_companion_contract_fixture.py",
+    "sha256": "05800126a3b47df9454260ee3d4e985ea07347fbcf37236ea582dffb01267489"
+  },
+  {
+    "path": "api/tests/test_game_companion_events.py",
+    "sha256": "ae9b9ea825a112d8f3b2be0d38e440956deb420c1df04e82e0314c1314ccfe5d"
+  },
+  {
+    "path": "api/tests/test_game_companion_failures.py",
+    "sha256": "8ab4c3df58fdd380c39b561ee6a7e9403a878f1d8853c6c80468216add4af87d"
+  },
+  {
+    "path": "api/tests/test_game_companion_persona.py",
+    "sha256": "13bed1e62df0b533aae36c9c7234d6603dc42b36e96c1a445c547ecb126162e8"
+  },
+  {
+    "path": "api/tests/test_game_companion_protocol.py",
+    "sha256": "439d2ccc75f5c8322ba6d114bdb5d82db45147f3542870bedd382ec01e146122"
+  },
+  {
+    "path": "api/tests/test_game_companion_provider_benchmark.py",
+    "sha256": "14a1bdb90879b7fc65d20c4bcdf6cd27ef6d48b43aa0385933ebc613c17f3405"
+  },
+  {
+    "path": "api/tests/test_game_companion_providers.py",
+    "sha256": "3a00eb54f89e4fc419aa5f1bae7d3238824896196260560dcaf17e8e1555edee"
+  },
+  {
+    "path": "api/tests/test_game_companion_route.py",
+    "sha256": "9f245f0467c0426b50231f00a3f6769c7bff4ddfa9ce88edf06e9ab48d3df16e"
+  },
+  {
+    "path": "api/tests/test_game_companion_session.py",
+    "sha256": "1fef343ea4c1365b64c72082ea4c86154e7bcbd23f8ea67d57575570cc0233d8"
+  },
+  {
+    "path": "api/tests/test_game_companion_smoke.py",
+    "sha256": "06088e4f6c8f25692ccf3d083a0aab5d42e66ed5a4d48c445bd3b4d76c1f2954"
+  },
+  {
+    "path": "api/tests/test_game_companion_speech_text.py",
+    "sha256": "f0bd0ac54ae0a7f1d07b2dc6f6102b0627348aa88e8ac95dd2bc0bb0fe160fd5"
+  },
+  {
+    "path": "api/tests/test_game_companion_tts_benchmark.py",
+    "sha256": "965c906cd6038d078ec13825ccf263f8e280f38e221a1c7c6625754611b278c3"
+  },
+  {
+    "path": "api/tests/test_game_companion_wake.py",
+    "sha256": "fdabb3c59d788a4e97cb6a8dd80198529935d06f4ee6810ad4872e279e4d4fde"
+  },
+  {
+    "path": "api/tests/test_gemini_live_reconnect_tool_results.py",
+    "sha256": "cc351405693b17b774c118fdb7b9cb9da5082475422609cd6fbca6626a598252"
+  },
+  {
+    "path": "api/tests/test_get_backend_endpoints.py",
+    "sha256": "42678f32b91f5be08e05efbe627576cfe9d21bc173eba03e982f03a31e4e8289"
+  },
+  {
+    "path": "api/tests/test_google_stt_service_factory.py",
+    "sha256": "bda44cedc80a3fd823e338e5f176f2aac05e338897cf2b64dd16ae034e4263e9"
+  },
+  {
+    "path": "api/tests/test_google_tts_service_factory.py",
+    "sha256": "1852729812e3e50d3c65c6fb88e7bb4ed361374085732697b7a4be00cf45600b"
+  },
+  {
+    "path": "api/tests/test_google_vertex_llm_service_factory.py",
+    "sha256": "73f7fa65864c08e2ae835747be4ca477d04cddecaa36218aa314d49bbed453f0"
+  },
+  {
+    "path": "api/tests/test_grok_realtime_wrapper.py",
+    "sha256": "663aaaed4de19ae4251b367932c39f6a74ebaa4282babf38d6f6b3743804e679"
+  },
+  {
+    "path": "api/tests/test_is_private_ip_candidate.py",
+    "sha256": "c7bfcf10e743f7058475e3368a49b98b1e0556e953ac05d0a751a39ced4a40f6"
+  },
+  {
+    "path": "api/tests/test_json_parser.py",
+    "sha256": "4b2cd3d32a8bacfb50cec66826fad53e49f87711ca21e2b677e639259a914c82"
+  },
+  {
+    "path": "api/tests/test_layout.py",
+    "sha256": "60db216cbbe9fc16364452dfbc14e9b97812ab32c0ff3917f4427c4cef2481cc"
+  },
+  {
+    "path": "api/tests/test_masked_key_rejection.py",
+    "sha256": "9ec3658babced5db8b96aaaf2298335bbcb512809a2bd4bf84d59c476347b468"
+  },
+  {
+    "path": "api/tests/test_mcp_auth.py",
+    "sha256": "66d5a948cac7fbc1b4b8ff8d692649bebe4ca60b75578cca68569cb872e0e86e"
+  },
+  {
+    "path": "api/tests/test_mcp_custom_tool_manager.py",
+    "sha256": "c94c8e3f27e0090da12b44f9c280f96d38bbaf94e8c0761b13ea7edc01fc794b"
+  },
+  {
+    "path": "api/tests/test_mcp_docs_search.py",
+    "sha256": "63a08382e20add2901a90e051c5a22ac40a1b5c465ecc546e6d7dc2dad9f6d45"
+  },
+  {
+    "path": "api/tests/test_mcp_get_workflow.py",
+    "sha256": "1fbdbef6e07ef5bf735007bc6243a7be3fccd96f7976b9658d86a0c77c1ac409"
+  },
+  {
+    "path": "api/tests/test_mcp_instructions_drift.py",
+    "sha256": "e0a12ea53a48175dfe83b43e77c1dd87866d25f3290daff4ca6f8fddb26b25cb"
+  },
+  {
+    "path": "api/tests/test_mcp_integration.py",
+    "sha256": "d1b67937e725b80ac7566c266f5e27f1891b34e455a48537497f930756ca63f6"
+  },
+  {
+    "path": "api/tests/test_mcp_save_workflow.py",
+    "sha256": "4c70457c953816003eb99e24a2baaf2d50b68fcb1be8fa3813b173d4d2241cb9"
+  },
+  {
+    "path": "api/tests/test_mcp_tool_creation.py",
+    "sha256": "b00e61895131310a317916a004795823f798082ff86f5fcf3db22c8af2815cd1"
+  },
+  {
+    "path": "api/tests/test_mcp_tool_definition.py",
+    "sha256": "5895816d69c990ac7e5963b881a5e7691365e4ce9e256482ab9eec9b7a7977e5"
+  },
+  {
+    "path": "api/tests/test_mcp_tool_route.py",
+    "sha256": "6d9f9de3ad1da4079c2aa6e8d1272b3fb41a0f879f0781a021201383ee550f82"
+  },
+  {
+    "path": "api/tests/test_mcp_tool_session.py",
+    "sha256": "8f5092d3ee850a57bbe815dc3bbc455a168d340bda6740a3cc0a6c7e6055eed9"
+  },
+  {
+    "path": "api/tests/test_message_sanitization.py",
+    "sha256": "6debce3e2ea92ce384146377df0df44639ce39066d85da8c355075544dd00ee9"
+  },
+  {
+    "path": "api/tests/test_minimax_service_factory.py",
+    "sha256": "c84c6c87d7ed1502f116d0939c753f143698f12e3b8d43327706eec0071b1274"
+  },
+  {
+    "path": "api/tests/test_mps_service_key_client.py",
+    "sha256": "b3e6fa6d0fd2d9bec9f879ff0d2c9c63ec3b32851f77b1a3d7e6dc849a3d875b"
+  },
+  {
+    "path": "api/tests/test_node_specs.py",
+    "sha256": "82c7babe6a7c25652d29eeffc5b2145c0fbc499ce7bea37f15999210f5d1ecf0"
+  },
+  {
+    "path": "api/tests/test_openai_realtime_initial_context.py",
+    "sha256": "73e04545d55846758ba3cfe7f18eb3bdbaec1037b402141f527a0c88351f8a21"
+  },
+  {
+    "path": "api/tests/test_openrouter_audio_provider.py",
+    "sha256": "865b78242f172d34c2095afc319dbb0d1b745a730dfe2da1a1611ae5b2b22313"
+  },
+  {
+    "path": "api/tests/test_pipecat_engine_callbacks.py",
+    "sha256": "9bbcd0b2afc2ea46dc28404b97e1b51476ec8ceded635ff4f7cd33cfc6051af4"
+  },
+  {
+    "path": "api/tests/test_pipecat_engine_context_update.py",
+    "sha256": "4078f1c7f0b2810b38391f624d875df332a03d5582666cd5d18b86fd1b415a92"
+  },
+  {
+    "path": "api/tests/test_pipecat_engine_end_call.py",
+    "sha256": "1bde76ff4ad111c7407aada52f66c89afe2e5ed31967de3ea29f4ab4d8f3a3a2"
+  },
+  {
+    "path": "api/tests/test_pipecat_engine_node_switch_with_user_speech.py",
+    "sha256": "b794649678cc142c4e6ff0d5ab2ad72506c8ad6c0b64e54eb7ce51a2f376e1eb"
+  },
+  {
+    "path": "api/tests/test_pipecat_engine_tool_calls.py",
+    "sha256": "e8f4c69a25efe55d3cd4818274fa6290a92f3a0eaeaebea0d88054e7ed599432"
+  },
+  {
+    "path": "api/tests/test_pipecat_engine_transition_mute.py",
+    "sha256": "9739f5c13ecc74976339faa0826c62c6f40a2e19d248e2e56465d13d82d496c8"
+  },
+  {
+    "path": "api/tests/test_pipecat_engine_variable_extraction.py",
+    "sha256": "84f32df22df662867765b4daa1540f07ed24986da365036095913cf1c910ef15"
+  },
+  {
+    "path": "api/tests/test_pipeline_cancellation.py",
+    "sha256": "f46bff453c8553e24a99d86a3143f35714806436429f7b040352b2f897567b95"
+  },
+  {
+    "path": "api/tests/test_pre_call_fetch.py",
+    "sha256": "99b6b48d7a41fc5adffe81b41f8309ff9e153f86624ce5db9f49f9b52fd11513"
+  },
+  {
+    "path": "api/tests/test_public_agent_routes.py",
+    "sha256": "0deeadd906b27fd9b2357ed2c833c721ad2fb2d3231afb78574cfe32e35ee4c3"
+  },
+  {
+    "path": "api/tests/test_public_embed_cors.py",
+    "sha256": "64c8f8cebbecded1b4f9d879230d13673e628377ff0899eba57967d3004ae7de"
+  },
+  {
+    "path": "api/tests/test_public_signaling_origin.py",
+    "sha256": "e541d09c3ab20a14492f807690008e525d14c8cdae46623f89f918f4ba6bcdf5"
+  },
+  {
+    "path": "api/tests/test_realtime_feedback_events.py",
+    "sha256": "c0744dd39abceed0706dbccf4ffb2fee821e62d4fe40fe380ed11d00191f65ac"
+  },
+  {
+    "path": "api/tests/test_realtime_feedback_observer.py",
+    "sha256": "02c50192d9591ab1541a700a1eb456fae7afb84eb84a60ed9ddb41dc53bebe14"
+  },
+  {
+    "path": "api/tests/test_realtime_message_append.py",
+    "sha256": "ba7c81523f539411af5bac769f5927743489540a331c2a7cb001843f03c4b08f"
+  },
+  {
+    "path": "api/tests/test_recording_router_processor.py",
+    "sha256": "9bb4659c548a568e8b9035f63c07bf3d9ca7510fe46d4d80456e483744147beb"
+  },
+  {
+    "path": "api/tests/test_resolve_effective_config.py",
+    "sha256": "f07c9b4246a246c30bff765b08627d3b1ceeb222de8ebfd5ae8265b32f1188cd"
+  },
+  {
+    "path": "api/tests/test_run_pipeline_realtime_turn_config.py",
+    "sha256": "92263c08b292084c9919a3c7742f286a4548e39f3196838848c099d39e860e43"
+  },
+  {
+    "path": "api/tests/test_run_usage_response.py",
+    "sha256": "7ccb942e6f1952c671e061185d845b118340868a2449d4fd7f75672eff557609"
+  },
+  {
+    "path": "api/tests/test_sarvam_service_factory.py",
+    "sha256": "97e239786794ec56cb1abdae08de073c5f7a4aa68757b19e09608ca1b198b0bf"
+  },
+  {
+    "path": "api/tests/test_sdk_sync.py",
+    "sha256": "abbe830ec3872fc0c1259738d21326df8fad3f083b05470e6b9b7ba4610c19cb"
+  },
+  {
+    "path": "api/tests/test_sensitive_session_logging.py",
+    "sha256": "38036c3ba90063ff2c80ccf8457d47894bc826fbe55ba4f80673783fcb44f6ab"
+  },
+  {
+    "path": "api/tests/test_speaches_service_factory.py",
+    "sha256": "08079d5c573695d367d0bee92d836f45615d644d729f12e5712c81d0769d9a8b"
+  },
+  {
+    "path": "api/tests/test_telephony_factory.py",
+    "sha256": "be1c285d643aeae8fe44476a09a4fd60838ae44c87fad86ca717349a0de0e58b"
+  },
+  {
+    "path": "api/tests/test_telephony_routes.py",
+    "sha256": "f6b7f947ce7b8d7b5ca9a18c113e652fb20f0ea6dec0deae483e07009c8ec85c"
+  },
+  {
+    "path": "api/tests/test_text_and_audio_playback.py",
+    "sha256": "0de27bd2d2410c765d42be57d3c2e094ca5d3955594fa85c21503b3682ef1942"
+  },
+  {
+    "path": "api/tests/test_text_chat_logs.py",
+    "sha256": "ba924ffd8633e6c472a9b5b2c21ad5370649c943094ccd4453abc4a40f8b21c4"
+  },
+  {
+    "path": "api/tests/test_text_chat_session_service.py",
+    "sha256": "c3821f7d02a462f352016b5b520d83aaf00e658499e04d194ad6dd5e7a7525d8"
+  },
+  {
+    "path": "api/tests/test_trigger_path_validation.py",
+    "sha256": "547338167d43c57261694622189eaf8a5f7629a1aed851d5fcad5dad3511557f"
+  },
+  {
+    "path": "api/tests/test_ts_bridge.py",
+    "sha256": "7e7ce8d496bc050c35e437fa6b189ef6b1c7e566b0a49bdd280440508cad685c"
+  },
+  {
+    "path": "api/tests/test_tts_endframe_with_audio_write_failure.py",
+    "sha256": "37a655521bd1dda428f3c51a6a695aadba1a46b129aa0c0c89dfcde3c0f33c18"
+  },
+  {
+    "path": "api/tests/test_turn_split_host.py",
+    "sha256": "3bec5eb0e8b34bd08b7ad38803e730814e1483e1f6728c4057d52c103cae0abb"
+  },
+  {
+    "path": "api/tests/test_ultravox_realtime_wrapper.py",
+    "sha256": "8ee70044cf2e29870d911d78c84b1d3d6df869ffcd2a526870e41d97a1706fe4"
+  },
+  {
+    "path": "api/tests/test_unregistered_function_call.py",
+    "sha256": "5300b7d64ae5bca4d87dc547f13dbc2d7da2697a0ff459537493a2813e62fccd"
+  },
+  {
+    "path": "api/tests/test_user_configured_service_url_security.py",
+    "sha256": "fbcfbbc04671697788e1c63e98759841c0a553a30428e46f4f61efe5fb430743"
+  },
+  {
+    "path": "api/tests/test_user_email_case_insensitive.py",
+    "sha256": "9824eb990712b4492c06bb74a90f2f2ead37aad0ebf493df2300419b18cb11fd"
+  },
+  {
+    "path": "api/tests/test_user_idle_handler.py",
+    "sha256": "e43800abe2ed4e08891e281069bd8c274851b9c5ad5172f436eacca8e23c4f73"
+  },
+  {
+    "path": "api/tests/test_user_muting_during_bot_speech.py",
+    "sha256": "6cf283dbec51736f972878001addab92fab90c26a90db24069db9172d8885a91"
+  },
+  {
+    "path": "api/tests/test_voicemail_detector.py",
+    "sha256": "0f9495dbb4e15c4e9505013b8181e67a0f1689ee6e9a240ef8fea8547b1ddd96"
+  },
+  {
+    "path": "api/tests/test_workflow_create_route.py",
+    "sha256": "f83948f775ad1404743b3fa2a73671ae0bda01aa978f8890c4f72a0eaa49afee"
+  },
+  {
+    "path": "api/tests/test_workflow_graph_constraints.py",
+    "sha256": "512c70dc60ab25a83a6c09f0dc0bf6665b03bf6e90d43fc6d4ef934c3eec33e7"
+  },
+  {
+    "path": "api/tests/test_workflow_list_route.py",
+    "sha256": "c0ab3f876bac68361453000ac17c40cda51ee49b160381d039c875fc057413d7"
+  },
+  {
+    "path": "api/tests/test_workflow_qa_masking.py",
+    "sha256": "fab39312ee1be11b5e3a7fa11ae7deed6464c90ab5c183a7ae71c663f736858f"
+  },
+  {
+    "path": "api/tests/test_workflow_run_cost.py",
+    "sha256": "5c289bd7133250ce75d64cdca88cbf69d2d6be8b4bf44c86d694302ececb3324"
+  },
+  {
+    "path": "api/tests/test_workflow_text_chat.py",
+    "sha256": "7bfa006bb2eb5e735c233ac6dc8d5e2bad27ad2c3b52916469f692764fb71aa6"
+  },
+  {
+    "path": "api/tests/test_workflow_versioning.py",
+    "sha256": "a7eb9a300bab79f0be1457994caafd56d10e812983fc9388358ab49b4fce8f19"
+  },
+  {
+    "path": "api/tools/game_companion_provider_benchmark.py",
+    "sha256": "492d797e5959b9485e76788a90568af8db0ab4d1af83b0af1f7a0300171db039"
+  },
+  {
+    "path": "api/tools/game_companion_smoke.py",
+    "sha256": "ff11d6b961d06e14f5e698bf6c72c527d20c7f33b2e51d371ef1eeca39dba1fd"
+  },
+  {
+    "path": "api/tools/game_companion_tts_benchmark.py",
+    "sha256": "6bad542288fe7522dc7a46f3b70ae16a409dd3f5befeb81e7805af33a74703d9"
+  },
+  {
+    "path": "api/utils/api_key.py",
+    "sha256": "5e04157fb9926f3f1d610c695e54c6957a8119d0d8556990495cc916d3061336"
+  },
+  {
+    "path": "api/utils/artifacts.py",
+    "sha256": "104a138d449f32126e863378196d757114dc477304dcda882b990c0ab2e71bb4"
+  },
+  {
+    "path": "api/utils/audio_converter.py",
+    "sha256": "927dae2e6aec8352c95dbc852bacded7b2821efcc92d2030257e1b55254dbab0"
+  },
+  {
+    "path": "api/utils/auth.py",
+    "sha256": "4c4fd8b5ead16aed8217644ac8194e1fe4ca16aa4ffc4027daab6d7aaa2858d3"
+  },
+  {
+    "path": "api/utils/common.py",
+    "sha256": "0d9fc28b591801c5529152a9a6d65354e98db9a01e5c3e796554f3ed2332bba1"
+  },
+  {
+    "path": "api/utils/credential_auth.py",
+    "sha256": "c87524515283707a9c0f0aee8d50f52b078f7c726235f80acfca3e2d9b3dca0d"
+  },
+  {
+    "path": "api/utils/telephony_address.py",
+    "sha256": "208c7046ae0b52bf0be8d2e25b74ebbc049e032fa8f358855feb6f51e73872d8"
+  },
+  {
+    "path": "api/utils/telephony_helper.py",
+    "sha256": "7d823b177140dd7246e90ca329feece14d8fc18f926ff2733e6aaedaf5a53a88"
+  },
+  {
+    "path": "api/utils/template_renderer.py",
+    "sha256": "02666f111eb1a0786bb99d76e4d575b5b724d07e537a553c53d7f44f28a77ea4"
+  },
+  {
+    "path": "api/utils/transcript.py",
+    "sha256": "c41ba58e02b14282df9521514b3bbccf0096e370c5a5f6d4340d9613089a75cb"
+  },
+  {
+    "path": "api/utils/tunnel.py",
+    "sha256": "fd174bd7ad96f44b48cf210b8809f44a43212357bd79d46a7f71d1ea1530431d"
+  },
+  {
+    "path": "api/utils/url_security.py",
+    "sha256": "d2c134164bf803d4343055924656aa0c34ad076de7c22f732c3db8328879f1b3"
+  },
+  {
+    "path": "api/utils/worker.py",
+    "sha256": "6255638a3a83fe1f8f1787143768dd1b8e4ea93ac615a08834e22d003acadf8c"
+  }
+]

@@ -1,0 +1,6 @@
+# Integration-window recipe only. This task did not build or deploy it.
+FROM dograh-api:aster-events-20260925
+COPY --chown=dograh:dograh backend/api/services/game_companion/protocol.py /app/api/services/game_companion/protocol.py
+COPY --chown=dograh:dograh backend/api/services/game_companion/persona.py /app/api/services/game_companion/persona.py
+COPY --chown=dograh:dograh backend/api/services/game_companion/session.py /app/api/services/game_companion/session.py
+COPY --chown=dograh:dograh backend/api/routes/game_companion.py /app/api/routes/game_companion.py

@@ -1,0 +1,33 @@
+{
+  "parser": "gdtoolkit",
+  "version": "4.5.0",
+  "files": [
+    {
+      "path": "scripts/companion/companion_client.gd",
+      "sha256": "ab2da2615ee16826cf156442c700f1967803abbf012d35e717149f27860d5cc0",
+      "syntax": "pass"
+    },
+    {
+      "path": "scripts/companion/lilt/lilt_encounter.gd",
+      "sha256": "f33895ef0917b930c5be1448a36e2b3506f46701e8209b82d9d91621889a84c9",
+      "syntax": "pass"
+    },
+    {
+      "path": "tests/test_companion_client.gd",
+      "sha256": "a91b9039ffc8d27181b984f1e639379e7074e45f8afcef8c3520e7fdaf789ef7",
+      "syntax": "pass"
+    },
+    {
+      "path": "tests/test_lilt_encounter_integration.gd",
+      "sha256": "77f0a533ab0b4a7c7f2f6fcb915eca14392b1a2471da013c55192799e08f892e",
+      "syntax": "pass"
+    },
+    {
+      "path": "tests/aster_event_check.gd",
+      "sha256": "5def5b16586cb5989396e9b5ffb37b49c58be4cf4861e4eb9832593785a094e4",
+      "syntax": "pass"
+    }
+  ],
+  "engine_execution": "not_run",
+  "type_and_signal_checks": "not_run"
+}

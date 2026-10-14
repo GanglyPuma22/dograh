@@ -1,0 +1,9 @@
+{
+  "candidate_match": true,
+  "files": {
+    "api/services/game_companion/protocol.py": "764f27cf7600542f3e042256f69db5624ef9e42c0619e00c8adc45c465dd537e",
+    "api/services/game_companion/persona.py": "2a87bd612897bc0b7728318ce9258fb929298dc8aae2a61f9ae971e9b8c4f517",
+    "api/services/game_companion/session.py": "13e00cb4d678356c99a4a8eb69f8e3d36fcbd9ed0dd19a7dc9f587731ce47b8f",
+    "api/routes/game_companion.py": "996ea9524d00d6493170eb357984edde896e08c1d318d4cb7a4f3f0cb9969778"
+  }
+}

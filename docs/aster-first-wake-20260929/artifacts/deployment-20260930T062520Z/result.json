@@ -1,0 +1,58 @@
+{
+  "status": "deployed_healthy",
+  "completed_at": "2026-09-30T06:26:14.782995+00:00",
+  "image": "dograh-api:aster-first-wake-candidate-20260929",
+  "image_id": "sha256:258e614f718fe94caf811628a89fd8e37f5bea286b0a2233c15ee98151463bb1",
+  "rollback_image": "dograh-api:aster-events-20260925",
+  "rollback_image_id": "sha256:b1d20b50f092ac3ab8fd29af4a2c5c2a2fffbb3ac3a2d2bfc80370892fd2e5bf",
+  "api_after": {
+    "id": "831fb6ef913bf71c5379a169bb87a34ac3f4d8f45274404a0329c28940870ec4",
+    "image_id": "sha256:258e614f718fe94caf811628a89fd8e37f5bea286b0a2233c15ee98151463bb1",
+    "started_at": "2026-09-30T06:25:36.114953301Z",
+    "health": "healthy",
+    "status": "running"
+  },
+  "health_and_hello": {
+    "http_health_status": 200,
+    "authenticated": true,
+    "type": "hello_ack",
+    "protocol_version": 1,
+    "capabilities": [
+      "game_events_v1",
+      "aster_wake_v1"
+    ],
+    "turn_sent": false,
+    "provider_turn_invoked": false
+  },
+  "private_environment_preserved": true,
+  "non_api_unchanged": true,
+  "non_api_after": {
+    "/dograh-salvage-live-redis-1": {
+      "id": "0d70638627bff574a9e2ad69c0c225e77bc27e4ef4c4118a824c4bad80ad0bc3",
+      "started_at": "2026-09-20T19:45:13.430587316Z",
+      "image_id": "sha256:595cc6f2bb3af6e03347b90deb6123c6aa2c81dea05ce08128de8a174b6ac67b"
+    },
+    "/dograh-salvage-live-postgres-1": {
+      "id": "1bc3581399f8a8faea751146bcc916a73d365f4bff839f5abcbf56ef220d4fb3",
+      "started_at": "2026-09-20T19:45:13.178323534Z",
+      "image_id": "sha256:7ae6051efd0e60444282c27c7e141af07f322ce033300e727a49c3dd11075e38"
+    },
+    "/minio": {
+      "id": "d6c5bf7500917cea2e14feddd31641323fc6b3e2a49c4ede710bde471592ff57",
+      "started_at": "2026-09-20T19:45:13.68689997Z",
+      "image_id": "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
+    },
+    "/transcription-server-whisper-1": {
+      "id": "e18a5d6e2fbd08c9289f880e2e8027e654b9e7ee488f6e45f3dd6f5e9a1c58e7",
+      "started_at": "2026-09-20T19:45:05.237349132Z",
+      "image_id": "sha256:9c93feabf1b215c9705214082746484f62b8ccf200b1f5bc1b1d2ccfe5c6a89f"
+    },
+    "/kokoro-tts-sidecar-kokoro-tts-1": {
+      "id": "e5767a0416eecb1ad4e8669602d1dc876c51b71437622815c30627a3be3383b7",
+      "started_at": "2026-09-20T19:45:05.238561848Z",
+      "image_id": "sha256:ee8108a5e83edfebb5ecfc4053e0fb567def8908321cff159f39a97796d8440b"
+    }
+  },
+  "provider_turn_invoked": false,
+  "human_audio_acceptance": "pending"
+}

@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "kind": "project",
+  "project_id": "aster-night-20260929",
+  "engine": {
+    "name": "Godot",
+    "version": "4.7.stable"
+  },
+  "target_platform": "Windows",
+  "references": [],
+  "artifact_root": "artifacts",
+  "current_candidate": null,
+  "workflow_version": "0.1.6",
+  "settings": {
+    "renderer": "forward_plus",
+    "viewport": [
+      1920,
+      1080
+    ],
+    "camera_fov_degrees": 70,
+    "ready_marker": null
+  },
+  "input_route": "tools/play-integrated-wetland.py --aster-station-events --review-id aster-night-20260929 --daylight --tutorial off; ordinary player controls and explicit microphone activation.",
+  "canonical_route": [
+    {
+      "id": "spawn",
+      "description": "Wake Aster at existing start; optional flight prompts preserve story."
+    },
+    {
+      "id": "shell",
+      "description": "Collect abandoned shell, repair ship local map."
+    },
+    {
+      "id": "station-arrival",
+      "description": "Fly to station apron by swamp/ridge plain, land and exit."
+    },
+    {
+      "id": "sample",
+      "description": "Follow worn path to swamp cup plant and collect prototype shed lining."
+    },
+    {
+      "id": "assay",
+      "description": "Compare baseline and lining at the bench; Aster asks about the earned clearer pulse, player may reply, and a practical ridge lead remains available as text."
+    },
+    {
+      "id": "ridge",
+      "description": "Walk connected ridge, activate receiver from inventory, aim to resolve moon signal."
+    },
+    {
+      "id": "departure",
+      "description": "M: pan local terrain, zoom to full planet, renewed outward gesture to known system, inspect moon and separately set destination; return to retained surface view; fly normally."
+    }
+  ],
+  "capabilities": {
+    "godot_smoke": null
+  },
+  "production_contract": {
+    "run_id": "aster-night-20260929",
+    "start_utc": "2026-09-29T09:30:12Z",
+    "integration_reserve_utc": "2026-09-29T15:15:00Z",
+    "cutoff_utc": "2026-09-29T16:00:00Z",
+    "snapshot_commit": "forbidden",
+    "backup_push": "forbidden",
+    "pull_requests": "forbidden",
+    "merge": "forbidden",
+    "provider_budget": {
+      "new_spend": 0
+    },
+    "scope_ladder": [
+      {
+        "id": "aster-journey",
+        "description": "Grounded observation, reliable Aster invitation, text fallback and existing ridge outcome"
+      }
+    ],
+    "exceptions": [
+      "Native preflight remains pending; continue useful authorized source work. Earlier host waiver does not apply."
+    ],
+    "exclusions": [
+      "artifacts/",
+      "*.import",
+      "credentials",
+      "machine-only evidence"
+    ]
+  }
+}

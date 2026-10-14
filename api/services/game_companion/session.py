@@ -32,6 +32,7 @@ from api.services.game_companion.protocol import (
     AudioStart,
     Caption,
     ErrorMessage,
+    GameEvent,
     MemoryQuery,
     MemoryResult,
     ProtocolError,
@@ -375,6 +376,11 @@ class CompanionSession:
         return len(self._background_tasks)
 
     async def start_turn(self, turn_id: str, context: dict[str, JsonValue]) -> None:
+        await self._start_turn(turn_id, context)
+
+    async def _start_turn(
+        self, turn_id: str, context: dict[str, JsonValue], *, game_event: str | None = None
+    ) -> None:
         self._require_open()
         self._require_provider_capacity()
         old_runtime = self._active
@@ -383,6 +389,8 @@ class CompanionSession:
             turn_id=turn_id,
             generation=self._generation,
             context=dict(context),
+            game_event=game_event,
+            input_closed=game_event is not None,
         )
         self._active = runtime
         if old_runtime is not None:
@@ -391,17 +399,17 @@ class CompanionSession:
             self._cancel_runtime(old_runtime)
         await self._emit(
             runtime,
-            State(type="state", turn_id=turn_id, state="listening"),
+            State(
+                type="state", turn_id=turn_id,
+                state="thinking" if game_event is not None else "listening",
+            ),
         )
 
     async def start_game_event(self, turn_id: str, context: dict[str, JsonValue], event: str) -> None:
         # Validate even for non-WebSocket callers, before interrupting another turn.
-        from api.services.game_companion.protocol import GameEvent
         GameEvent(type="game_event", turn_id=turn_id, context=context, event=event)
-        await self.start_turn(turn_id, context)
+        await self._start_turn(turn_id, context, game_event=event)
         runtime = self._require_active(turn_id)
-        runtime.game_event = event
-        runtime.input_closed = True
         runtime.task = asyncio.create_task(self._run_turn(runtime), name=f"game-companion-event-{turn_id}")
         self._retain_turn_task(turn_id, runtime.task)
         self._track_background_task(runtime.task)
